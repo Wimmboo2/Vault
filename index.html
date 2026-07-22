@@ -197,6 +197,20 @@
             <nav class="flex-1 overflow-y-auto py-sm" id="sidebar-nav">
                 <!-- Rendered dynamically -->
             </nav>
+            <!-- Bottom Left Actions (Export / Import JSON) -->
+            <div class="p-sm border-t border-grid flex flex-col gap-xs shrink-0 bg-surface">
+                <div class="flex gap-xs">
+                    <button onclick="exportVaultJSON()" class="btn-action flex-1 py-xs px-xs rounded text-sans-label font-mono-ui-sm flex items-center justify-center gap-xs hover:text-primary transition-colors min-h-[32px]" title="Export backup JSON">
+                        <span class="material-symbols-outlined text-[14px]">download</span>
+                        <span>export</span>
+                    </button>
+                    <button onclick="triggerImportJSON()" class="btn-action flex-1 py-xs px-xs rounded text-sans-label font-mono-ui-sm flex items-center justify-center gap-xs hover:text-primary transition-colors min-h-[32px]" title="Import backup JSON">
+                        <span class="material-symbols-outlined text-[14px]">upload</span>
+                        <span>import</span>
+                    </button>
+                </div>
+                <input id="import-json-file" type="file" accept=".json" class="hidden" onchange="importVaultJSON(event)" />
+            </div>
         </aside>
 
         <!-- Mobile Horizontal Category Nav -->
@@ -590,6 +604,112 @@
             return '••••••••••••••••••••••••••••••••';
         }
 
+        // Toast Notification Helper
+        function showToast(msg) {
+            const toast = document.createElement('div');
+            toast.className = 'fixed bottom-4 right-4 bg-[#21262d] border border-primary text-primary px-md py-xs rounded font-mono-ui-sm text-mono-ui-sm shadow-lg z-50 transition-opacity duration-300';
+            toast.textContent = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 1500);
+        }
+
+        // Export entries to JSON file
+        window.exportVaultJSON = function() {
+            if (!entries || entries.length === 0) {
+                showToast('No entries to export.');
+                return;
+            }
+
+            const exportObj = {
+                app: 'Vault',
+                version: 1,
+                exportedAt: new Date().toISOString(),
+                entries: entries
+            };
+
+            const jsonStr = JSON.stringify(exportObj, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const dateStr = new Date().toISOString().split('T')[0];
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `vault_backup_${dateStr}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showToast('Vault exported to JSON!');
+        };
+
+        // Trigger file picker for import
+        window.triggerImportJSON = function() {
+            const input = document.getElementById('import-json-file');
+            if (input) input.click();
+        };
+
+        // Import entries from JSON file
+        window.importVaultJSON = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const content = JSON.parse(e.target.result);
+                    let importedEntries = [];
+
+                    if (Array.isArray(content)) {
+                        importedEntries = content;
+                    } else if (content && Array.isArray(content.entries)) {
+                        importedEntries = content.entries;
+                    } else {
+                        showToast('Invalid Vault JSON format.');
+                        return;
+                    }
+
+                    if (importedEntries.length === 0) {
+                        showToast('JSON file contains no entries.');
+                        return;
+                    }
+
+                    const existingIds = new Set(entries.map(item => item.id));
+                    let addedCount = 0;
+
+                    importedEntries.reverse().forEach(item => {
+                        if (item.name && item.type && item.value) {
+                            if (existingIds.has(item.id)) {
+                                item.id = 'entry-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
+                            }
+                            entries.unshift({
+                                id: item.id || ('entry-' + Date.now()),
+                                name: item.name,
+                                type: item.type,
+                                value: item.value,
+                                createdAt: item.createdAt || Date.now(),
+                                lastUsedAt: item.lastUsedAt || null
+                            });
+                            existingIds.add(item.id);
+                            addedCount++;
+                        }
+                    });
+
+                    await saveEntries();
+                    renderApp();
+                    showToast(`Imported ${addedCount} entry(ies) successfully!`);
+                } catch (err) {
+                    console.error('Import error:', err);
+                    showToast('Failed to parse JSON file.');
+                }
+                event.target.value = '';
+            };
+            reader.readAsText(file);
+        };
+
         window.copyToClipboard = function(id, event) {
             if (event) event.stopPropagation();
             const item = entries.find(e => e.id === id);
@@ -598,17 +718,8 @@
             navigator.clipboard.writeText(item.value).then(() => {
                 item.lastUsedAt = Date.now();
                 saveEntries();
-
                 renderApp();
-
-                const toast = document.createElement('div');
-                toast.className = 'fixed bottom-4 right-4 bg-[#21262d] border border-primary text-primary px-md py-xs rounded font-mono-ui-sm text-mono-ui-sm shadow-lg z-50 transition-opacity duration-300';
-                toast.textContent = 'Copied to clipboard!';
-                document.body.appendChild(toast);
-                setTimeout(() => {
-                    toast.style.opacity = '0';
-                    setTimeout(() => toast.remove(), 300);
-                }, 1500);
+                showToast('Copied to clipboard!');
             }).catch(err => {
                 console.error('Failed to copy', err);
             });
