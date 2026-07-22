@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>Vault Dashboard</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet">
+    <link href="https://fonts.googleapis.com" rel="preconnect">
+    <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap"
+        rel="stylesheet">
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary": "#3e2e00",
+                        "primary-container": "#a875fc",
+                        "surface-dim": "#0d1418",
+                        "secondary-fixed": "#97f999",
+                        "secondary-fixed-dim": "#7bdb80",
+                        "on-error-container": "#ffdad6",
+                        "on-primary-fixed-variant": "#5a21ab",
+                        "surface-container-highest": "#2f363a",
+                        "secondary-container": "#007124",
+                        "tertiary": "#eec145",
+                        "surface-container": "#192125",
+                        "on-background": "#dce3e9",
+                        "inverse-primary": "#733fc4",
+                        "on-surface-variant": "#ccc3d5",
+                        "tertiary-container": "#b38b08",
+                        "surface-bright": "#333a3f",
+                        "background": "#0d1418",
+                        "on-tertiary-fixed-variant": "#594400",
+                        "surface-container-lowest": "#080f13",
+                        "on-primary-container": "#39007a",
+                        "on-secondary": "#00390e",
+                        "on-secondary-container": "#91f294",
+                        "inverse-surface": "#dce3e9",
+                        "error-container": "#93000a",
+                        "on-secondary-fixed-variant": "#005319",
+                        "tertiary-fixed": "#ffdf94",
+                        "on-primary": "#41008b",
+                        "surface": "#0d1418",
+                        "inverse-on-surface": "#2a3136",
+                        "error": "#ffb4ab",
+                        "secondary": "#7bdb80",
+                        "outline": "#968d9e",
+                        "surface-container-low": "#151d21",
+                        "on-tertiary-container": "#362800",
+                        "on-surface": "#dce3e9",
+                        "surface-variant": "#2f363a",
+                        "on-secondary-fixed": "#002106",
+                        "on-tertiary-fixed": "#251a00",
+                        "surface-container-high": "#242b2f",
+                        "primary": "#d5bbff",
+                        "on-primary-fixed": "#270058",
+                        "surface-tint": "#d5bbff",
+                        "primary-fixed-dim": "#d5bbff",
+                        "tertiary-fixed-dim": "#eec145",
+                        "primary-fixed": "#ecdcff",
+                        "outline-variant": "#4a4453",
+                        "on-error": "#690005"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "xs": "4px",
+                        "xl": "24px",
+                        "md": "12px",
+                        "sidebar-width": "260px",
+                        "gutter": "1px",
+                        "lg": "16px",
+                        "sm": "8px"
+                    },
+                    "fontFamily": {
+                        "sans-label": ["Inter"],
+                        "mono-ui-sm": ["JetBrains Mono"],
+                        "mono-ui-lg": ["JetBrains Mono"],
+                        "mono-code": ["JetBrains Mono"],
+                        "mono-ui-md": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "sans-label": ["12px", { "lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "400" }],
+                        "mono-ui-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+                        "mono-ui-lg": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "mono-code": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "mono-ui-md": ["14px", { "lineHeight": "20px", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .border-grid {
+            border-color: #30363d !important;
+        }
+
+        .btn-action {
+            background-color: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+        }
+
+        .btn-action:hover {
+            background-color: #30363d;
+        }
+
+        .list-row {
+            border-bottom: 1px solid #30363d;
+        }
+
+        .list-row:hover {
+            background-color: #161b22;
+        }
+
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 2px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4a4453;
+        }
+    </style>
+</head>
+
+<body class="bg-background text-on-surface font-mono-ui-md text-mono-ui-md antialiased">
+    <!-- TopNavBar -->
+    <header class="flex justify-between items-center w-full px-md sm:px-lg h-12 sm:h-10 border-b border-grid shrink-0 bg-background gap-sm">
+        <div class="flex items-center gap-md sm:gap-xl h-full flex-1 min-w-0">
+            <!-- Brand Logo -->
+            <div class="text-mono-ui-lg font-mono-ui-lg font-bold text-primary shrink-0">
+                vault
+            </div>
+            <!-- Terminal-style Search -->
+            <div class="flex items-center gap-xs text-mono-ui-sm font-mono-ui-sm text-on-surface-variant bg-[#161b22] border border-grid px-sm py-[2px] rounded focus-within:border-primary flex-1 max-w-xs">
+                <span class="text-primary font-bold">&gt;</span>
+                <input id="search-input" type="text" placeholder="search entries..." class="bg-transparent border-none outline-none text-on-surface text-mono-ui-sm font-mono-ui-sm focus:ring-0 p-0 w-full placeholder:text-on-surface-variant/40" />
+            </div>
+        </div>
+        <!-- Trailing Action -->
+        <button id="btn-new-entry" class="btn-action h-8 sm:h-7 px-md rounded font-mono-ui-sm text-mono-ui-sm flex items-center gap-xs transition-colors duration-100 shrink-0 min-h-[44px] sm:min-h-[28px] min-w-[44px] sm:min-w-0 justify-center">
+            <span>+ new</span>
+        </button>
+    </header>
+
+    <!-- Main Workspace Area -->
+    <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
+        <!-- SideNavBar Desktop -->
+        <aside class="hidden md:flex flex-col h-full w-[220px] border-r border-grid shrink-0 bg-surface">
+            <div class="p-md border-b border-grid">
+                <div class="text-mono-ui-md font-mono-ui-md text-on-surface mb-xs">C:</div>
+            </div>
+            <nav class="flex-1 overflow-y-auto py-sm" id="sidebar-nav">
+                <!-- Rendered dynamically -->
+            </nav>
+        </aside>
+
+        <!-- Mobile Horizontal Category Nav -->
+        <div class="md:hidden flex overflow-x-auto border-b border-grid bg-surface shrink-0 p-xs gap-xs" id="mobile-nav">
+            <!-- Rendered dynamically -->
+        </div>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 overflow-y-auto bg-[#0d1117] p-sm sm:p-lg flex flex-col">
+            <!-- Breadcrumb / Header -->
+            <div id="breadcrumb" class="mb-md sm:mb-lg flex items-center text-mono-ui-sm font-mono-ui-sm text-on-surface-variant">
+                <span>~/vault/</span>
+                <span class="text-primary" id="breadcrumb-category">all/</span>
+            </div>
+
+            <!-- List Container -->
+            <div class="border border-grid rounded bg-[#0d1117] flex flex-col flex-1">
+                <!-- Table Header -->
+                <div class="hidden sm:flex items-center w-full h-8 px-md border-b border-grid text-sans-label font-sans-label text-on-surface-variant uppercase tracking-wider">
+                    <div class="w-8"></div>
+                    <div class="flex-1">Name</div>
+                    <div class="w-48 text-right pr-md">Last Used</div>
+                    <div class="w-24 text-center">Actions</div>
+                </div>
+
+                <!-- Dynamic Content Container -->
+                <div id="entries-container" class="flex flex-col flex-1">
+                    <!-- Rendered dynamically -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        // Storage Key
+        const STORAGE_KEY = 'vault_entries';
+
+        // App State
+        let entries = [];
+        let activeCategory = 'all'; // 'all', 'api-key', 'prompt'
+        let searchQuery = '';
+        let expandedId = null;
+        let editingId = null;
+        let isCreating = false;
+        let deleteConfirmId = null;
+        let revealedState = {};
+
+        // Default Seed Data if localStorage is empty
+        const defaultSeed = [
+            {
+                id: 'seed-1',
+                name: 'openai_key.env',
+                type: 'api-key',
+                value: 'sk-proj-9876543210fedcba9876543210fedcba',
+                createdAt: Date.now() - 86400000 * 3,
+                lastUsedAt: Date.now() - 86400000 * 3
+            },
+            {
+                id: 'seed-2',
+                name: 'system_prompt_v2.md',
+                type: 'prompt',
+                value: 'You are an expert AI pair programmer. Maintain high standards, write clean code, and follow user preferences strictly.',
+                createdAt: Date.now() - 86400000 * 2,
+                lastUsedAt: Date.now() - 86400000
+            },
+            {
+                id: 'seed-3',
+                name: 'anthropic_api.key',
+                type: 'api-key',
+                value: 'sk-ant-api03-abcdef1234567890abcdef1234567890',
+                createdAt: Date.now() - 86400000,
+                lastUsedAt: Date.now()
+            }
+        ];
+
+        // Load entries from localStorage
+        function loadEntries() {
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (stored) {
+                    entries = JSON.parse(stored);
+                } else {
+                    entries = defaultSeed;
+                    saveEntries();
+                }
+            } catch (e) {
+                console.error('Failed to load from localStorage', e);
+                entries = defaultSeed;
+            }
+        }
+
+        // Save entries to localStorage
+        function saveEntries() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+            } catch (e) {
+                console.error('Failed to save to localStorage', e);
+            }
+        }
+
+        // Helper: Time ago string
+        function formatTimeAgo(timestamp) {
+            if (!timestamp) return 'never';
+            const diff = Date.now() - timestamp;
+            const minutes = Math.floor(diff / 60000);
+            if (minutes < 1) return 'just now';
+            if (minutes < 60) return `${minutes}m ago`;
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `${hours}h ago`;
+            const days = Math.floor(hours / 24);
+            return `${days} day${days > 1 ? 's' : ''} ago`;
+        }
+
+        // Helper: HTML Escaping
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        // Helper: Mask secret values
+        function maskValue(val) {
+            if (!val) return '••••••••••••';
+            if (val.startsWith('sk-ant-') || val.startsWith('sk-proj-') || val.startsWith('sk-')) {
+                const parts = val.split('-');
+                const prefix = parts.slice(0, 2).join('-') + '-';
+                return prefix + '************************************************************';
+            }
+            if (val.length <= 8) return '••••••••••••';
+            return val.substring(0, 4) + '••••••••••••••••••••' + val.substring(val.length - 4);
+        }
+
+        // Copy to clipboard
+        window.copyToClipboard = function(id, event) {
+            if (event) event.stopPropagation();
+            const item = entries.find(e => e.id === id);
+            if (!item) return;
+
+            navigator.clipboard.writeText(item.value).then(() => {
+                item.lastUsedAt = Date.now();
+                saveEntries();
+
+                render();
+
+                const toast = document.createElement('div');
+                toast.className = 'fixed bottom-4 right-4 bg-[#21262d] border border-primary text-primary px-md py-xs rounded font-mono-ui-sm text-mono-ui-sm shadow-lg z-50 transition-opacity duration-300';
+                toast.textContent = 'Copied to clipboard!';
+                document.body.appendChild(toast);
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                    setTimeout(() => toast.remove(), 300);
+                }, 1500);
+            }).catch(err => {
+                console.error('Failed to copy', err);
+            });
+        };
+
+        // Toggle mask reveal
+        window.toggleReveal = function(id, event) {
+            if (event) event.stopPropagation();
+            revealedState[id] = !revealedState[id];
+            render();
+        };
+
+        // Toggle row expansion
+        window.toggleExpand = function(id) {
+            if (editingId === id) return;
+            expandedId = expandedId === id ? null : id;
+            deleteConfirmId = null;
+            render();
+        };
+
+        // Start edit mode
+        window.startEdit = function(id, event) {
+            if (event) event.stopPropagation();
+            editingId = id;
+            expandedId = id;
+            deleteConfirmId = null;
+            render();
+        };
+
+        // Cancel edit
+        window.cancelEdit = function() {
+            editingId = null;
+            render();
+        };
+
+        // Save edit
+        window.saveEdit = function(e, id) {
+            e.preventDefault();
+            const name = document.getElementById(`edit-name-${id}`).value.trim();
+            const type = document.getElementById(`edit-type-${id}`).value;
+            const value = document.getElementById(`edit-value-${id}`).value;
+
+            if (!name || !value) return;
+
+            const index = entries.findIndex(item => item.id === id);
+            if (index !== -1) {
+                entries[index].name = name;
+                entries[index].type = type;
+                entries[index].value = value;
+                saveEntries();
+            }
+
+            editingId = null;
+            render();
+        };
+
+        // Delete entry with confirmation
+        window.confirmDelete = function(id, event) {
+            if (event) event.stopPropagation();
+            if (deleteConfirmId === id) {
+                entries = entries.filter(e => e.id !== id);
+                if (expandedId === id) expandedId = null;
+                if (editingId === id) editingId = null;
+                deleteConfirmId = null;
+                saveEntries();
+                render();
+            } else {
+                deleteConfirmId = id;
+                render();
+            }
+        };
+
+        // Filter categories & search
+        function getFilteredEntries() {
+            return entries.filter(item => {
+                const matchesCat = activeCategory === 'all' || item.type === activeCategory;
+                const matchesSearch = !searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase());
+                return matchesCat && matchesSearch;
+            });
+        }
+
+        // Render Sidebar Navigation
+        function renderNav() {
+            const sidebar = document.getElementById('sidebar-nav');
+            const mobile = document.getElementById('mobile-nav');
+
+            const categories = [
+                { id: 'all', label: 'all/', icon: 'folder' },
+                { id: 'api-key', label: 'api-keys/', icon: 'key' },
+                { id: 'prompt', label: 'prompts/', icon: 'description' }
+            ];
+
+            // Render Desktop Nav
+            sidebar.innerHTML = categories.map(cat => `
+                <a href="#" onclick="selectCategory('${cat.id}', event)" class="flex items-center w-full border-l-2 py-xs px-md group transition-colors duration-150 ${activeCategory === cat.id ? 'border-primary bg-[#161b22] text-primary font-mono-ui-md' : 'border-transparent text-on-surface-variant font-mono-ui-sm hover:bg-[#161b22]'}">
+                    <span class="material-symbols-outlined text-[16px] mr-sm opacity-70 group-hover:opacity-100">${cat.icon}</span>
+                    <span class="truncate">${cat.label}</span>
+                </a>
+            `).join('');
+
+            // Render Mobile Nav
+            mobile.innerHTML = categories.map(cat => `
+                <button onclick="selectCategory('${cat.id}', event)" class="px-md py-xs rounded text-mono-ui-sm shrink-0 flex items-center gap-xs font-mono-ui-sm min-h-[44px] ${activeCategory === cat.id ? 'bg-[#161b22] text-primary border border-primary/40' : 'text-on-surface-variant hover:bg-[#161b22]'}" style="line-height: normal;">
+                    <span class="material-symbols-outlined text-[16px]">${cat.icon}</span> ${cat.label}
+                </button>
+            `).join('');
+
+            // Update Breadcrumb
+            const categoryText = activeCategory === 'all' ? 'all/' : (activeCategory === 'api-key' ? 'api-keys/' : 'prompts/');
+            document.getElementById('breadcrumb-category').textContent = categoryText;
+        }
+
+        window.selectCategory = function(cat, event) {
+            if (event) event.preventDefault();
+            activeCategory = cat;
+            render();
+        };
+
+        // Render Entries List & Forms
+        function renderEntries() {
+            const container = document.getElementById('entries-container');
+            const filtered = getFilteredEntries();
+
+            let html = '';
+
+            // 1. Inline New Entry Form if `isCreating`
+            if (isCreating) {
+                html += `
+                <div class="list-row flex flex-col w-full border-l-2 border-primary bg-[#161b22] p-md border-b border-grid">
+                    <div class="text-mono-ui-sm font-semibold text-primary mb-sm flex justify-between items-center">
+                        <span>+ Add New Entry</span>
+                        <button onclick="toggleCreating(false)" class="text-on-surface-variant hover:text-primary min-w-[44px] min-h-[44px] flex items-center justify-center">
+                            <span class="material-symbols-outlined text-[18px]">close</span>
+                        </button>
+                    </div>
+                    <form id="create-entry-form" onsubmit="handleCreate(event)" class="flex flex-col gap-md">
+                        <div class="flex flex-col sm:flex-row gap-md">
+                            <div class="flex-1">
+                                <label class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Name</label>
+                                <input id="new-name" type="text" required placeholder="e.g. openai_key.env" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none" />
+                            </div>
+                            <div class="w-full sm:w-48">
+                                <label class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Type</label>
+                                <select id="new-type" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none">
+                                    <option value="api-key" ${activeCategory === 'api-key' ? 'selected' : ''}>API Key</option>
+                                    <option value="prompt" ${activeCategory === 'prompt' ? 'selected' : ''}>Prompt</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Value / Content</label>
+                            <textarea id="new-value" required rows="3" placeholder="Enter API key string or prompt template..." class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-code font-mono-code rounded p-sm focus:border-primary focus:outline-none resize-y"></textarea>
+                        </div>
+                        <div class="flex justify-end gap-sm">
+                            <button type="button" onclick="toggleCreating(false)" class="btn-action px-md py-xs rounded text-mono-ui-sm min-h-[44px] flex items-center">Cancel</button>
+                            <button type="submit" class="btn-action px-md py-xs rounded text-mono-ui-sm text-primary border-primary/50 hover:border-primary min-h-[44px] flex items-center">Save Entry</button>
+                        </div>
+                    </form>
+                </div>
+                `;
+            }
+
+            // 2. Empty State
+            if (filtered.length === 0 && !isCreating) {
+                html += `
+                <div class="p-xl text-center flex flex-col items-center justify-center gap-sm my-lg flex-1">
+                    <div class="text-mono-ui-lg text-primary font-bold">&gt; vault is empty</div>
+                    <div class="text-mono-ui-sm text-on-surface-variant max-w-md">
+                        ${searchQuery ? `No entries matching "${escapeHtml(searchQuery)}". Try clearing your search.` : 'No entries found in this category. Click "+ new" above to store your first entry.'}
+                    </div>
+                </div>
+                `;
+                container.innerHTML = html;
+                return;
+            }
+
+            // 3. Render List Rows
+            filtered.forEach(item => {
+                const isExpanded = expandedId === item.id;
+                const isEditing = editingId === item.id;
+                const isDeleting = deleteConfirmId === item.id;
+
+                if (isEditing) {
+                    // Edit Mode Row
+                    html += `
+                    <div class="list-row flex flex-col w-full border-l-2 border-primary bg-[#161b22] p-md border-b border-grid">
+                        <div class="text-mono-ui-sm font-semibold text-primary mb-sm flex justify-between items-center">
+                            <span>Edit Entry</span>
+                            <button onclick="cancelEdit()" class="text-on-surface-variant hover:text-primary min-w-[44px] min-h-[44px] flex items-center justify-center">
+                                <span class="material-symbols-outlined text-[18px]">close</span>
+                            </button>
+                        </div>
+                        <form onsubmit="saveEdit(event, '${item.id}')" class="flex flex-col gap-md">
+                            <div class="flex flex-col sm:flex-row gap-md">
+                                <div class="flex-1">
+                                    <label class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Name</label>
+                                    <input id="edit-name-${item.id}" type="text" required value="${escapeHtml(item.name)}" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none" />
+                                </div>
+                                <div class="w-full sm:w-48">
+                                    <label class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Type</label>
+                                    <select id="edit-type-${item.id}" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none">
+                                        <option value="api-key" ${item.type === 'api-key' ? 'selected' : ''}>API Key</option>
+                                        <option value="prompt" ${item.type === 'prompt' ? 'selected' : ''}>Prompt</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Value / Content</label>
+                                <textarea id="edit-value-${item.id}" required rows="4" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-code font-mono-code rounded p-sm focus:border-primary focus:outline-none resize-y">${escapeHtml(item.value)}</textarea>
+                            </div>
+                            <div class="flex justify-end gap-sm">
+                                <button type="button" onclick="cancelEdit()" class="btn-action px-md py-xs rounded text-mono-ui-sm min-h-[44px] flex items-center">Cancel</button>
+                                <button type="submit" class="btn-action px-md py-xs rounded text-mono-ui-sm text-primary border-primary/50 hover:border-primary min-h-[44px] flex items-center">Update Entry</button>
+                            </div>
+                        </form>
+                    </div>
+                    `;
+                } else if (isExpanded) {
+                    // Expanded Row Mode
+                    html += `
+                    <div class="list-row flex flex-col w-full border-l-2 border-primary bg-[#161b22] px-md py-sm border-b border-grid">
+                        <div class="flex flex-col sm:flex-row sm:items-center w-full min-h-[36px] gap-xs sm:gap-0 cursor-pointer" onclick="toggleExpand('${item.id}')">
+                            <div class="flex items-center flex-1 min-w-0">
+                                <div class="w-8 flex items-center justify-center -ml-[2px] shrink-0">
+                                    <span class="material-symbols-outlined text-[18px] text-primary">keyboard_arrow_down</span>
+                                </div>
+                                <div class="flex-1 text-mono-ui-sm font-mono-ui-sm text-primary font-medium truncate pr-md">
+                                    ${escapeHtml(item.name)}
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between sm:justify-end gap-md pl-8 sm:pl-0" onclick="event.stopPropagation()">
+                                <div class="text-mono-ui-sm font-mono-ui-sm text-on-surface-variant opacity-60 text-right sm:w-48">
+                                    ${formatTimeAgo(item.lastUsedAt)}
+                                </div>
+                                <div class="flex items-center gap-xs">
+                                    <button onclick="toggleExpand('${item.id}')" class="text-primary min-w-[44px] min-h-[44px] flex items-center justify-center" title="Close">
+                                        <span class="material-symbols-outlined text-[18px]">close</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="pl-0 sm:pl-8 pr-0 sm:pr-md pb-xs pt-xs w-full">
+                            <div class="relative bg-[#0d1117] border border-grid rounded p-md">
+                                <div class="flex flex-wrap items-center justify-end gap-xs mb-sm sm:mb-0 sm:absolute sm:top-2 sm:right-2 z-10">
+                                    <button onclick="toggleReveal('${item.id}', event)" class="btn-action min-h-[44px] sm:min-h-[28px] sm:h-6 px-sm rounded text-sans-label font-sans-label flex items-center gap-xs">
+                                        <span class="material-symbols-outlined text-[14px]">${revealedState[item.id] ? 'visibility_off' : 'visibility'}</span>
+                                        <span>${revealedState[item.id] ? 'Hide' : 'Reveal'}</span>
+                                    </button>
+                                    <button onclick="copyToClipboard('${item.id}', event)" class="btn-action min-h-[44px] sm:min-h-[28px] sm:h-6 px-sm rounded text-sans-label font-sans-label flex items-center gap-xs">
+                                        <span class="material-symbols-outlined text-[14px]">content_copy</span>
+                                        <span class="copy-text">Copy</span>
+                                    </button>
+                                    <button onclick="startEdit('${item.id}', event)" class="btn-action min-h-[44px] sm:min-h-[28px] sm:h-6 px-sm rounded text-sans-label font-sans-label flex items-center gap-xs">
+                                        <span class="material-symbols-outlined text-[14px]">edit</span>
+                                        <span>Edit</span>
+                                    </button>
+                                    <button onclick="confirmDelete('${item.id}', event)" class="btn-action min-h-[44px] sm:min-h-[28px] sm:h-6 px-sm rounded text-sans-label font-sans-label flex items-center gap-xs ${isDeleting ? 'text-error border-error' : 'hover:text-error'}">
+                                        <span class="material-symbols-outlined text-[14px]">delete</span>
+                                        <span>${isDeleting ? 'Confirm?' : 'Delete'}</span>
+                                    </button>
+                                </div>
+                                <pre class="text-mono-code font-mono-code text-on-surface-variant whitespace-pre-wrap break-all sm:pr-48 m-0 leading-relaxed">${revealedState[item.id] ? escapeHtml(item.value) : maskValue(item.value)}</pre>
+                            </div>
+                            <div class="flex flex-wrap gap-sm mt-sm">
+                                <span class="px-xs py-[2px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-on-surface-variant uppercase">${item.type === 'api-key' ? 'API Key' : 'Prompt'}</span>
+                                <span class="px-xs py-[2px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-on-surface-variant opacity-75">Created ${new Date(item.createdAt).toLocaleDateString()}</span>
+                            </div>
+                        </div>
+                    </div>
+                    `;
+                } else {
+                    // Collapsed Normal Row
+                    html += `
+                    <div class="list-row flex flex-col sm:flex-row sm:items-center w-full min-h-[44px] py-xs sm:py-0 px-md group transition-colors duration-100 cursor-pointer border-b border-grid gap-xs sm:gap-0" onclick="toggleExpand('${item.id}')">
+                        <div class="flex items-center flex-1 min-w-0">
+                            <div class="w-8 flex items-center justify-center shrink-0">
+                                <div class="w-1.5 h-1.5 rounded-full ${item.type === 'api-key' ? 'bg-primary' : 'bg-secondary'}"></div>
+                            </div>
+                            <div class="flex-1 text-mono-ui-sm font-mono-ui-sm text-on-surface truncate pr-md">
+                                ${escapeHtml(item.name)}
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between sm:justify-end gap-md pl-8 sm:pl-0">
+                            <div class="text-mono-ui-sm font-mono-ui-sm text-on-surface-variant opacity-60 shrink-0 text-right sm:w-48">
+                                ${formatTimeAgo(item.lastUsedAt)}
+                            </div>
+                            <div class="flex items-center gap-xs opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity" onclick="event.stopPropagation()">
+                                <button onclick="copyToClipboard('${item.id}', event)" class="text-on-surface-variant hover:text-primary min-w-[44px] min-h-[44px] flex items-center justify-center" title="Copy to clipboard">
+                                    <span class="material-symbols-outlined text-[18px]">content_copy</span>
+                                </button>
+                                <button onclick="startEdit('${item.id}', event)" class="text-on-surface-variant hover:text-primary min-w-[44px] min-h-[44px] flex items-center justify-center" title="Edit entry">
+                                    <span class="material-symbols-outlined text-[18px]">edit</span>
+                                </button>
+                                <button onclick="confirmDelete('${item.id}', event)" class="text-on-surface-variant ${isDeleting ? 'text-error' : 'hover:text-error'} min-w-[44px] min-h-[44px] flex items-center justify-center" title="${isDeleting ? 'Click to confirm delete' : 'Delete entry'}">
+                                    <span class="material-symbols-outlined text-[18px]">${isDeleting ? 'help_outline' : 'delete'}</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    `;
+                }
+            });
+
+            container.innerHTML = html;
+        }
+
+        // Toggle inline creation form
+        window.toggleCreating = function(show) {
+            isCreating = typeof show === 'boolean' ? show : !isCreating;
+            if (isCreating) {
+                expandedId = null;
+                editingId = null;
+                deleteConfirmId = null;
+            }
+            render();
+
+            if (isCreating) {
+                setTimeout(() => {
+                    const input = document.getElementById('new-name');
+                    if (input) input.focus();
+                }, 50);
+            }
+        };
+
+        // Handle entry creation form submission
+        window.handleCreate = function(e) {
+            e.preventDefault();
+            const name = document.getElementById('new-name').value.trim();
+            const type = document.getElementById('new-type').value;
+            const value = document.getElementById('new-value').value;
+
+            if (!name || !value) return;
+
+            const newItem = {
+                id: 'entry-' + Date.now(),
+                name,
+                type,
+                value,
+                createdAt: Date.now(),
+                lastUsedAt: null
+            };
+
+            entries.unshift(newItem);
+            saveEntries();
+
+            isCreating = false;
+            expandedId = newItem.id;
+            render();
+        };
+
+        // Main Render Loop
+        function render() {
+            renderNav();
+            renderEntries();
+        }
+
+        // Initialize App
+        document.addEventListener('DOMContentLoaded', () => {
+            loadEntries();
+            render();
+
+            // Event Listeners
+            document.getElementById('btn-new-entry').addEventListener('click', () => {
+                toggleCreating();
+            });
+
+            document.getElementById('search-input').addEventListener('input', (e) => {
+                searchQuery = e.target.value;
+                render();
+            });
+        });
+    </script>
+</body>
+
+</html>
