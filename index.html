@@ -165,19 +165,30 @@
                 vault
             </div>
             <!-- Terminal-style Search -->
-            <div class="flex items-center gap-xs text-mono-ui-sm font-mono-ui-sm text-on-surface-variant bg-[#161b22] border border-grid px-sm py-[2px] rounded focus-within:border-primary flex-1 max-w-xs">
+            <div id="search-container" class="flex items-center gap-xs text-mono-ui-sm font-mono-ui-sm text-on-surface-variant bg-[#161b22] border border-grid px-sm py-[2px] rounded focus-within:border-primary flex-1 max-w-xs">
                 <span class="text-primary font-bold">&gt;</span>
                 <input id="search-input" type="text" placeholder="search entries..." class="bg-transparent border-none outline-none text-on-surface text-mono-ui-sm font-mono-ui-sm focus:ring-0 p-0 w-full placeholder:text-on-surface-variant/40" />
             </div>
         </div>
-        <!-- Trailing Action -->
-        <button id="btn-new-entry" class="btn-action h-8 sm:h-7 px-md rounded font-mono-ui-sm text-mono-ui-sm flex items-center gap-xs transition-colors duration-100 shrink-0 min-h-[44px] sm:min-h-[28px] min-w-[44px] sm:min-w-0 justify-center">
-            <span>+ new</span>
-        </button>
+        <!-- Trailing Actions -->
+        <div class="flex items-center gap-xs shrink-0">
+            <button id="btn-lock" onclick="lockVault()" class="btn-action h-8 sm:h-7 px-sm sm:px-md rounded font-mono-ui-sm text-mono-ui-sm flex items-center gap-xs transition-colors duration-100 min-h-[44px] sm:min-h-[28px] text-on-surface-variant hover:text-primary hidden">
+                <span class="material-symbols-outlined text-[16px]">lock</span>
+                <span class="hidden sm:inline">lock</span>
+            </button>
+            <button id="btn-new-entry" class="btn-action h-8 sm:h-7 px-md rounded font-mono-ui-sm text-mono-ui-sm flex items-center gap-xs transition-colors duration-100 shrink-0 min-h-[44px] sm:min-h-[28px] min-w-[44px] sm:min-w-0 justify-center hidden">
+                <span>+ new</span>
+            </button>
+        </div>
     </header>
 
-    <!-- Main Workspace Area -->
-    <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
+    <!-- Authentication Overlay Container (Setup & Unlock Screens) -->
+    <div id="auth-container" class="flex-1 flex flex-col items-center justify-center p-md bg-[#0d1117] hidden">
+        <!-- Rendered dynamically by script -->
+    </div>
+
+    <!-- Main Workspace Area (App Dashboard) -->
+    <div id="app-workspace" class="flex flex-col md:flex-row flex-1 overflow-hidden">
         <!-- SideNavBar Desktop -->
         <aside class="hidden md:flex flex-col h-full w-[220px] border-r border-grid shrink-0 bg-surface">
             <div class="p-md border-b border-grid">
@@ -221,12 +232,18 @@
 
     <!-- Application Script -->
     <script>
-        // Storage Key
-        const STORAGE_KEY = 'vault_entries';
+        // Storage Keys for Encrypted Data
+        const SALT_KEY = 'vault_salt';
+        const AUTH_KEY = 'vault_auth_token';
+        const DATA_KEY = 'vault_encrypted_data';
+        const AUTH_VALIDATION_STRING = 'VAULT_AUTH_VERIFIED_V1';
 
         // App State
+        let masterKey = null; // CryptoKey object when unlocked
+        let isInitialized = false;
+        let isLocked = true;
         let entries = [];
-        let activeCategory = 'all'; // 'all', 'api-key', 'prompt'
+        let activeCategory = 'all';
         let searchQuery = '';
         let expandedId = null;
         let editingId = null;
@@ -234,7 +251,7 @@
         let deleteConfirmId = null;
         let revealedState = {};
 
-        // Default Seed Data if localStorage is empty
+        // Default Seed Data if vault is newly initialized
         const defaultSeed = [
             {
                 id: 'seed-1',
@@ -262,32 +279,287 @@
             }
         ];
 
-        // Load entries from localStorage
-        function loadEntries() {
+        // --- Web Crypto API Helpers ---
+        function bufferToBase64(buf) {
+            return btoa(String.fromCharCode(...new Uint8Array(buf)));
+        }
+
+        function base64ToBuffer(b64) {
+            const binStr = atob(b64);
+            const bytes = new Uint8Array(binStr.length);
+            for (let i = 0; i < binStr.length; i++) {
+                bytes[i] = binStr.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        async function deriveMasterKey(password, saltUint8Array) {
+            const encoder = new TextEncoder();
+            const baseKey = await crypto.subtle.importKey(
+                "raw",
+                encoder.encode(password),
+                "PBKDF2",
+                false,
+                ["deriveKey"]
+            );
+            return crypto.subtle.deriveKey(
+                {
+                    name: "PBKDF2",
+                    salt: saltUint8Array,
+                    iterations: 100000,
+                    hash: "SHA-256"
+                },
+                baseKey,
+                { name: "AES-GCM", length: 256 },
+                false,
+                ["encrypt", "decrypt"]
+            );
+        }
+
+        async function encryptText(plaintext, cryptoKey) {
+            const encoder = new TextEncoder();
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const encryptedBuf = await crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv },
+                cryptoKey,
+                encoder.encode(plaintext)
+            );
+            return {
+                ciphertext: bufferToBase64(encryptedBuf),
+                iv: bufferToBase64(iv)
+            };
+        }
+
+        async function decryptText(ciphertextB64, ivB64, cryptoKey) {
+            const decoder = new TextDecoder();
+            const ciphertextBuf = base64ToBuffer(ciphertextB64);
+            const ivBuf = base64ToBuffer(ivB64);
+            const decryptedBuf = await crypto.subtle.decrypt(
+                { name: "AES-GCM", iv: new Uint8Array(ivBuf) },
+                cryptoKey,
+                ciphertextBuf
+            );
+            return decoder.decode(decryptedBuf);
+        }
+
+        // --- Auth & Encrypted Storage Handlers ---
+        function checkInitialization() {
+            const salt = localStorage.getItem(SALT_KEY);
+            const authToken = localStorage.getItem(AUTH_KEY);
+            isInitialized = !!(salt && authToken);
+            return isInitialized;
+        }
+
+        async function saveEntries() {
+            if (!masterKey || isLocked) return;
             try {
-                const stored = localStorage.getItem(STORAGE_KEY);
-                if (stored) {
-                    entries = JSON.parse(stored);
+                const jsonStr = JSON.stringify(entries);
+                const encryptedPayload = await encryptText(jsonStr, masterKey);
+                localStorage.setItem(DATA_KEY, JSON.stringify(encryptedPayload));
+            } catch (e) {
+                console.error('Failed to encrypt and save entries:', e);
+            }
+        }
+
+        async function loadAndDecryptEntries() {
+            if (!masterKey) return;
+            try {
+                const storedDataStr = localStorage.getItem(DATA_KEY);
+                if (storedDataStr) {
+                    const payload = JSON.parse(storedDataStr);
+                    const jsonStr = await decryptText(payload.ciphertext, payload.iv, masterKey);
+                    entries = JSON.parse(jsonStr);
                 } else {
                     entries = defaultSeed;
-                    saveEntries();
+                    await saveEntries();
                 }
             } catch (e) {
-                console.error('Failed to load from localStorage', e);
+                console.error('Failed to decrypt entries:', e);
                 entries = defaultSeed;
             }
         }
 
-        // Save entries to localStorage
-        function saveEntries() {
+        // First Time Setup Submit Handler
+        window.handleInitVault = async function(e) {
+            e.preventDefault();
+            const password = document.getElementById('init-password').value;
+            const confirm = document.getElementById('init-password-confirm').value;
+            const errorEl = document.getElementById('init-error');
+
+            if (password.length < 4) {
+                errorEl.textContent = 'Password must be at least 4 characters long.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            if (password !== confirm) {
+                errorEl.textContent = 'Passwords do not match.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
             try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-            } catch (e) {
-                console.error('Failed to save to localStorage', e);
+                // Generate 16-byte salt
+                const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+                const saltB64 = bufferToBase64(saltBytes);
+                localStorage.setItem(SALT_KEY, saltB64);
+
+                // Derive key
+                const key = await deriveMasterKey(password, saltBytes);
+
+                // Encrypt auth validation token
+                const authPayload = await encryptText(AUTH_VALIDATION_STRING, key);
+                localStorage.setItem(AUTH_KEY, JSON.stringify(authPayload));
+
+                masterKey = key;
+                isInitialized = true;
+                isLocked = false;
+
+                // Check if legacy unencrypted entries exist, else seed
+                const legacyStored = localStorage.getItem('vault_entries');
+                if (legacyStored) {
+                    try { entries = JSON.parse(legacyStored); } catch(err) { entries = defaultSeed; }
+                    localStorage.removeItem('vault_entries');
+                } else {
+                    entries = defaultSeed;
+                }
+
+                await saveEntries();
+                renderApp();
+            } catch (err) {
+                console.error('Setup failed:', err);
+                errorEl.textContent = 'Failed to initialize encryption.';
+                errorEl.classList.remove('hidden');
+            }
+        };
+
+        // Unlock Submit Handler
+        window.handleUnlockVault = async function(e) {
+            e.preventDefault();
+            const password = document.getElementById('unlock-password').value;
+            const errorEl = document.getElementById('unlock-error');
+
+            try {
+                const saltB64 = localStorage.getItem(SALT_KEY);
+                const authStr = localStorage.getItem(AUTH_KEY);
+
+                if (!saltB64 || !authStr) {
+                    errorEl.textContent = 'Vault state corrupted. Please clear site data.';
+                    errorEl.classList.remove('hidden');
+                    return;
+                }
+
+                const saltBytes = new Uint8Array(base64ToBuffer(saltB64));
+                const key = await deriveMasterKey(password, saltBytes);
+                const authPayload = JSON.parse(authStr);
+
+                // Verify password by attempting decryption of validation string
+                const decryptedAuth = await decryptText(authPayload.ciphertext, authPayload.iv, key);
+
+                if (decryptedAuth === AUTH_VALIDATION_STRING) {
+                    masterKey = key;
+                    isLocked = false;
+                    await loadAndDecryptEntries();
+                    renderApp();
+                } else {
+                    errorEl.textContent = 'Invalid master password.';
+                    errorEl.classList.remove('hidden');
+                }
+            } catch (err) {
+                console.error('Decryption failed:', err);
+                errorEl.textContent = 'Invalid master password.';
+                errorEl.classList.remove('hidden');
+            }
+        };
+
+        // Lock Action
+        window.lockVault = function() {
+            masterKey = null;
+            isLocked = true;
+            entries = [];
+            expandedId = null;
+            editingId = null;
+            isCreating = false;
+            deleteConfirmId = null;
+            revealedState = {};
+            renderApp();
+        };
+
+        // Render Authentication Screens
+        function renderAuthScreens() {
+            const authContainer = document.getElementById('auth-container');
+            const appWorkspace = document.getElementById('app-workspace');
+            const searchContainer = document.getElementById('search-container');
+            const btnLock = document.getElementById('btn-lock');
+            const btnNew = document.getElementById('btn-new-entry');
+
+            appWorkspace.classList.add('hidden');
+            searchContainer.classList.add('hidden');
+            btnLock.classList.add('hidden');
+            btnNew.classList.add('hidden');
+            authContainer.classList.remove('hidden');
+
+            if (!isInitialized) {
+                // First-time Setup Form
+                authContainer.innerHTML = `
+                <div class="w-full max-w-md bg-[#161b22] border border-grid rounded p-lg flex flex-col gap-md">
+                    <div class="flex items-center gap-xs text-primary font-bold text-mono-ui-lg">
+                        <span class="material-symbols-outlined text-[20px]">lock_reset</span>
+                        <span>initialize vault</span>
+                    </div>
+                    <div class="text-mono-ui-sm text-on-surface-variant leading-relaxed">
+                        Set a master password to encrypt your API keys and prompts. Your password is never saved to disk and is required to unlock your vault.
+                    </div>
+                    <form onsubmit="handleInitVault(event)" class="flex flex-col gap-md">
+                        <div>
+                            <label class="block text-sans-label text-on-surface-variant uppercase mb-xs">Master Password</label>
+                            <input id="init-password" type="password" required placeholder="Choose a password..." class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none" />
+                        </div>
+                        <div>
+                            <label class="block text-sans-label text-on-surface-variant uppercase mb-xs">Confirm Password</label>
+                            <input id="init-password-confirm" type="password" required placeholder="Confirm password..." class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none" />
+                        </div>
+                        <div id="init-error" class="text-error text-mono-ui-sm hidden"></div>
+                        <button type="submit" class="btn-action py-xs px-md rounded text-primary border-primary/50 hover:border-primary font-mono-ui-sm min-h-[44px] flex items-center justify-center gap-xs">
+                            <span class="material-symbols-outlined text-[18px]">lock</span>
+                            <span>Encrypt & Initialize Vault</span>
+                        </button>
+                    </form>
+                </div>
+                `;
+            } else {
+                // Lock Screen
+                authContainer.innerHTML = `
+                <div class="w-full max-w-md bg-[#161b22] border border-grid rounded p-lg flex flex-col gap-md">
+                    <div class="flex items-center gap-xs text-primary font-bold text-mono-ui-lg">
+                        <span class="material-symbols-outlined text-[20px]">lock</span>
+                        <span>vault is locked</span>
+                    </div>
+                    <div class="text-mono-ui-sm text-on-surface-variant">
+                        Enter your master password to decrypt and access your entries.
+                    </div>
+                    <form onsubmit="handleUnlockVault(event)" class="flex flex-col gap-md">
+                        <div>
+                            <label class="block text-sans-label text-on-surface-variant uppercase mb-xs">Master Password</label>
+                            <input id="unlock-password" type="password" required autofocus placeholder="Enter master password..." class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none" />
+                        </div>
+                        <div id="unlock-error" class="text-error text-mono-ui-sm hidden"></div>
+                        <button type="submit" class="btn-action py-xs px-md rounded text-primary border-primary/50 hover:border-primary font-mono-ui-sm min-h-[44px] flex items-center justify-center gap-xs">
+                            <span class="material-symbols-outlined text-[18px]">key</span>
+                            <span>Unlock Vault</span>
+                        </button>
+                    </form>
+                </div>
+                `;
+
+                setTimeout(() => {
+                    const input = document.getElementById('unlock-password');
+                    if (input) input.focus();
+                }, 50);
             }
         }
 
-        // Helper: Time ago string
+        // --- Standard UI Rendering Helpers ---
         function formatTimeAgo(timestamp) {
             if (!timestamp) return 'never';
             const diff = Date.now() - timestamp;
@@ -300,7 +572,6 @@
             return `${days} day${days > 1 ? 's' : ''} ago`;
         }
 
-        // Helper: HTML Escaping
         function escapeHtml(str) {
             if (!str) return '';
             return String(str)
@@ -311,7 +582,6 @@
                 .replace(/'/g, '&#039;');
         }
 
-        // Helper: Mask secret values
         function maskValue(val) {
             if (!val) return '••••••••••••••••••••••••';
             if (val.startsWith('sk-ant-')) return 'sk-ant-••••••••••••••••••••••••••••••••';
@@ -320,7 +590,6 @@
             return '••••••••••••••••••••••••••••••••';
         }
 
-        // Copy to clipboard
         window.copyToClipboard = function(id, event) {
             if (event) event.stopPropagation();
             const item = entries.find(e => e.id === id);
@@ -330,7 +599,7 @@
                 item.lastUsedAt = Date.now();
                 saveEntries();
 
-                render();
+                renderApp();
 
                 const toast = document.createElement('div');
                 toast.className = 'fixed bottom-4 right-4 bg-[#21262d] border border-primary text-primary px-md py-xs rounded font-mono-ui-sm text-mono-ui-sm shadow-lg z-50 transition-opacity duration-300';
@@ -345,38 +614,33 @@
             });
         };
 
-        // Toggle mask reveal
         window.toggleReveal = function(id, event) {
             if (event) event.stopPropagation();
             revealedState[id] = !revealedState[id];
-            render();
+            renderApp();
         };
 
-        // Toggle row expansion
         window.toggleExpand = function(id) {
             if (editingId === id) return;
             expandedId = expandedId === id ? null : id;
             deleteConfirmId = null;
-            render();
+            renderApp();
         };
 
-        // Start edit mode
         window.startEdit = function(id, event) {
             if (event) event.stopPropagation();
             editingId = id;
             expandedId = id;
             deleteConfirmId = null;
-            render();
+            renderApp();
         };
 
-        // Cancel edit
         window.cancelEdit = function() {
             editingId = null;
-            render();
+            renderApp();
         };
 
-        // Save edit
-        window.saveEdit = function(e, id) {
+        window.saveEdit = async function(e, id) {
             e.preventDefault();
             const name = document.getElementById(`edit-name-${id}`).value.trim();
             const type = document.getElementById(`edit-type-${id}`).value;
@@ -389,30 +653,28 @@
                 entries[index].name = name;
                 entries[index].type = type;
                 entries[index].value = value;
-                saveEntries();
+                await saveEntries();
             }
 
             editingId = null;
-            render();
+            renderApp();
         };
 
-        // Delete entry with confirmation
-        window.confirmDelete = function(id, event) {
+        window.confirmDelete = async function(id, event) {
             if (event) event.stopPropagation();
             if (deleteConfirmId === id) {
                 entries = entries.filter(e => e.id !== id);
                 if (expandedId === id) expandedId = null;
                 if (editingId === id) editingId = null;
                 deleteConfirmId = null;
-                saveEntries();
-                render();
+                await saveEntries();
+                renderApp();
             } else {
                 deleteConfirmId = id;
-                render();
+                renderApp();
             }
         };
 
-        // Filter categories & search
         function getFilteredEntries() {
             return entries.filter(item => {
                 const matchesCat = activeCategory === 'all' || item.type === activeCategory;
@@ -421,7 +683,6 @@
             });
         }
 
-        // Render Sidebar Navigation
         function renderNav() {
             const sidebar = document.getElementById('sidebar-nav');
             const mobile = document.getElementById('mobile-nav');
@@ -432,7 +693,6 @@
                 { id: 'prompt', label: 'prompts/', icon: 'description' }
             ];
 
-            // Render Desktop Nav
             sidebar.innerHTML = categories.map(cat => `
                 <a href="#" onclick="selectCategory('${cat.id}', event)" class="flex items-center w-full border-l-2 py-xs px-md group transition-colors duration-150 ${activeCategory === cat.id ? 'border-primary bg-[#161b22] text-primary font-mono-ui-md' : 'border-transparent text-on-surface-variant font-mono-ui-sm hover:bg-[#161b22]'}">
                     <span class="material-symbols-outlined text-[16px] mr-sm opacity-70 group-hover:opacity-100">${cat.icon}</span>
@@ -440,14 +700,12 @@
                 </a>
             `).join('');
 
-            // Render Mobile Nav
             mobile.innerHTML = categories.map(cat => `
                 <button onclick="selectCategory('${cat.id}', event)" class="px-md py-xs rounded text-mono-ui-sm shrink-0 flex items-center gap-xs font-mono-ui-sm min-h-[44px] ${activeCategory === cat.id ? 'bg-[#161b22] text-primary border border-primary/40' : 'text-on-surface-variant hover:bg-[#161b22]'}" style="line-height: normal;">
                     <span class="material-symbols-outlined text-[16px]">${cat.icon}</span> ${cat.label}
                 </button>
             `).join('');
 
-            // Update Breadcrumb
             const categoryText = activeCategory === 'all' ? 'all/' : (activeCategory === 'api-key' ? 'api-keys/' : 'prompts/');
             document.getElementById('breadcrumb-category').textContent = categoryText;
         }
@@ -455,17 +713,15 @@
         window.selectCategory = function(cat, event) {
             if (event) event.preventDefault();
             activeCategory = cat;
-            render();
+            renderApp();
         };
 
-        // Render Entries List & Forms
         function renderEntries() {
             const container = document.getElementById('entries-container');
             const filtered = getFilteredEntries();
 
             let html = '';
 
-            // 1. Inline New Entry Form if `isCreating`
             if (isCreating) {
                 html += `
                 <div class="list-row flex flex-col w-full border-l-2 border-primary bg-[#161b22] p-md border-b border-grid">
@@ -502,7 +758,6 @@
                 `;
             }
 
-            // 2. Empty State
             if (filtered.length === 0 && !isCreating) {
                 html += `
                 <div class="p-xl text-center flex flex-col items-center justify-center gap-sm my-lg flex-1">
@@ -516,14 +771,12 @@
                 return;
             }
 
-            // 3. Render List Rows
             filtered.forEach(item => {
                 const isExpanded = expandedId === item.id;
                 const isEditing = editingId === item.id;
                 const isDeleting = deleteConfirmId === item.id;
 
                 if (isEditing) {
-                    // Edit Mode Row
                     html += `
                     <div class="list-row flex flex-col w-full border-l-2 border-primary bg-[#161b22] p-md border-b border-grid">
                         <div class="text-mono-ui-sm font-semibold text-primary mb-sm flex justify-between items-center">
@@ -558,7 +811,6 @@
                     </div>
                     `;
                 } else if (isExpanded) {
-                    // Expanded Row Mode
                     html += `
                     <div class="list-row flex flex-col w-full border-l-2 border-primary bg-[#161b22] px-md py-sm border-b border-grid">
                         <div class="flex flex-col sm:flex-row sm:items-center w-full min-h-[36px] gap-xs sm:gap-0 cursor-pointer" onclick="toggleExpand('${item.id}')">
@@ -611,7 +863,6 @@
                     </div>
                     `;
                 } else {
-                    // Collapsed Normal Row
                     html += `
                     <div class="list-row flex flex-col sm:flex-row sm:items-center w-full min-h-[44px] py-xs sm:py-0 px-md group transition-colors duration-100 cursor-pointer border-b border-grid gap-xs sm:gap-0" onclick="toggleExpand('${item.id}')">
                         <div class="flex items-center flex-1 min-w-0">
@@ -646,7 +897,6 @@
             container.innerHTML = html;
         }
 
-        // Toggle inline creation form
         window.toggleCreating = function(show) {
             isCreating = typeof show === 'boolean' ? show : !isCreating;
             if (isCreating) {
@@ -654,7 +904,7 @@
                 editingId = null;
                 deleteConfirmId = null;
             }
-            render();
+            renderApp();
 
             if (isCreating) {
                 setTimeout(() => {
@@ -664,8 +914,7 @@
             }
         };
 
-        // Handle entry creation form submission
-        window.handleCreate = function(e) {
+        window.handleCreate = async function(e) {
             e.preventDefault();
             const name = document.getElementById('new-name').value.trim();
             const type = document.getElementById('new-type').value;
@@ -683,32 +932,47 @@
             };
 
             entries.unshift(newItem);
-            saveEntries();
+            await saveEntries();
 
             isCreating = false;
             expandedId = newItem.id;
-            render();
+            renderApp();
         };
 
-        // Main Render Loop
-        function render() {
-            renderNav();
-            renderEntries();
+        // Main Render Controller
+        function renderApp() {
+            const authContainer = document.getElementById('auth-container');
+            const appWorkspace = document.getElementById('app-workspace');
+            const searchContainer = document.getElementById('search-container');
+            const btnLock = document.getElementById('btn-lock');
+            const btnNew = document.getElementById('btn-new-entry');
+
+            if (!isInitialized || isLocked) {
+                renderAuthScreens();
+            } else {
+                authContainer.classList.add('hidden');
+                appWorkspace.classList.remove('hidden');
+                searchContainer.classList.remove('hidden');
+                btnLock.classList.remove('hidden');
+                btnNew.classList.remove('hidden');
+
+                renderNav();
+                renderEntries();
+            }
         }
 
         // Initialize App
         document.addEventListener('DOMContentLoaded', () => {
-            loadEntries();
-            render();
+            checkInitialization();
+            renderApp();
 
-            // Event Listeners
             document.getElementById('btn-new-entry').addEventListener('click', () => {
                 toggleCreating();
             });
 
             document.getElementById('search-input').addEventListener('input', (e) => {
                 searchQuery = e.target.value;
-                render();
+                renderApp();
             });
         });
     </script>
