@@ -312,14 +312,11 @@
 
         // Helper: Mask secret values
         function maskValue(val) {
-            if (!val) return '••••••••••••';
-            if (val.startsWith('sk-ant-') || val.startsWith('sk-proj-') || val.startsWith('sk-')) {
-                const parts = val.split('-');
-                const prefix = parts.slice(0, 2).join('-') + '-';
-                return prefix + '************************************************************';
-            }
-            if (val.length <= 8) return '••••••••••••';
-            return val.substring(0, 4) + '••••••••••••••••••••' + val.substring(val.length - 4);
+            if (!val) return '••••••••••••••••••••••••';
+            if (val.startsWith('sk-ant-')) return 'sk-ant-••••••••••••••••••••••••••••••••';
+            if (val.startsWith('sk-proj-')) return 'sk-proj-••••••••••••••••••••••••••••••••';
+            if (val.startsWith('sk-')) return 'sk-••••••••••••••••••••••••••••••••';
+            return '••••••••••••••••••••••••••••••••';
         }
 
         // Copy to clipboard
