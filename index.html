@@ -214,7 +214,7 @@
         </aside>
 
         <!-- Mobile Horizontal Category Nav -->
-        <div class="md:hidden flex overflow-x-auto border-b border-grid bg-surface shrink-0 p-xs gap-xs" id="mobile-nav">
+        <div class="md:hidden flex items-center justify-between border-b border-grid bg-surface shrink-0 p-xs gap-xs" id="mobile-nav">
             <!-- Rendered dynamically -->
         </div>
 
@@ -811,11 +811,25 @@
                 </a>
             `).join('');
 
-            mobile.innerHTML = categories.map(cat => `
-                <button onclick="selectCategory('${cat.id}', event)" class="px-md py-xs rounded text-mono-ui-sm shrink-0 flex items-center gap-xs font-mono-ui-sm min-h-[44px] ${activeCategory === cat.id ? 'bg-[#161b22] text-primary border border-primary/40' : 'text-on-surface-variant hover:bg-[#161b22]'}" style="line-height: normal;">
-                    <span class="material-symbols-outlined text-[16px]">${cat.icon}</span> ${cat.label}
-                </button>
-            `).join('');
+            mobile.innerHTML = `
+                <div class="flex items-center gap-xs overflow-x-auto flex-1 min-w-0">
+                    ${categories.map(cat => `
+                        <button onclick="selectCategory('${cat.id}', event)" class="px-md py-xs rounded text-mono-ui-sm shrink-0 flex items-center gap-xs font-mono-ui-sm min-h-[44px] ${activeCategory === cat.id ? 'bg-[#161b22] text-primary border border-primary/40' : 'text-on-surface-variant hover:bg-[#161b22]'}" style="line-height: normal;">
+                            <span class="material-symbols-outlined text-[16px]">${cat.icon}</span> ${cat.label}
+                        </button>
+                    `).join('')}
+                </div>
+                <div class="flex items-center gap-xs shrink-0 pl-xs border-l border-grid">
+                    <button onclick="exportVaultJSON()" class="btn-action px-sm py-xs rounded text-sans-label font-mono-ui-sm flex items-center justify-center gap-xs hover:text-primary transition-colors min-h-[44px]" title="Export backup JSON">
+                        <span class="material-symbols-outlined text-[16px]">download</span>
+                        <span>export</span>
+                    </button>
+                    <button onclick="triggerImportJSON()" class="btn-action px-sm py-xs rounded text-sans-label font-mono-ui-sm flex items-center justify-center gap-xs hover:text-primary transition-colors min-h-[44px]" title="Import backup JSON">
+                        <span class="material-symbols-outlined text-[16px]">upload</span>
+                        <span>import</span>
+                    </button>
+                </div>
+            `;
 
             const categoryText = activeCategory === 'all' ? 'all/' : (activeCategory === 'api-key' ? 'api-keys/' : 'prompts/');
             document.getElementById('breadcrumb-category').textContent = categoryText;
