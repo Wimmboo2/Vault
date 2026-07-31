@@ -4,7 +4,7 @@ A single-file, client-side encrypted vault for API keys and prompts. No backend,
 
 ## What can it do?
 
-[SCREENSHOT: vault locked screen — master password prompt on dark terminal-style background]
+![Lock screen](screenshots/master-lock.png)
 
 - **Encrypt at rest** — all entries are encrypted with AES-256-GCM before touching localStorage; the master key stays in memory and is never persisted
 - **API keys & prompt templates** — two entry types with category filtering (all / api-keys / prompts)
@@ -15,7 +15,7 @@ A single-file, client-side encrypted vault for API keys and prompts. No backend,
 - **Import/export** — backup your vault as a versioned JSON file and restore it later; handles ID conflicts on import
 - **Responsive layout** — sidebar navigation on desktop, horizontal category tabs on mobile
 
-[SCREENSHOT: main dashboard — entry list with an api-key entry expanded, showing masked value, copy/reveal/edit/delete action buttons]
+![Main dashboard](screenshots/main-interface.png)
 
 ## How it works
 
