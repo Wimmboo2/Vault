@@ -12,7 +12,13 @@ A single-file, client-side encrypted vault for API keys and prompts. No backend,
 - **Copy to clipboard** — one click copies the plaintext value and bumps the "last used" timestamp
 - **CRUD entries** — create, edit, delete (with a two-click confirmation to avoid accidents)
 - **Search** — full-text search across entry names
-- **Import/export** — backup your vault as a versioned JSON file and restore it later; handles ID conflicts on import
+- **Encrypted backups** — export is encrypted with a passphrase of your choosing and carries its own salt, so it restores on any machine; plaintext export is available but must be opted into explicitly
+- **Auto-lock on idle** — the vault locks itself after a configurable idle period, with a 30-second warning first
+- **Rotation reminders** — give an entry a rotation period and it is flagged in the list (and in a `rotate/` view) once it comes due
+- **Password generator** — CSPRNG-backed, with length, character sets, and a look-alike filter; available anywhere a value or passphrase is entered
+- **Strength meter** — live entropy estimate on the master password and backup passphrases
+- **Reveal toggle** — temporarily show a password you are typing; it hides itself again after 10 seconds
+- **Keyboard-first** — `ctrl+K` command palette, `/` to search, `N` for a new entry, `ctrl+L` to lock, `?` for the full list
 - **Responsive layout** — sidebar navigation on desktop, horizontal category tabs on mobile
 
 ![Main dashboard](screenshots/main-interface.png)
@@ -31,7 +37,7 @@ Plain JavaScript calls the [Web Crypto API](https://developer.mozilla.org/en-US/
 [user types master password]
         |
         v
-PBKDF2 (SHA-256, 100k iterations, 16-byte random salt)
+PBKDF2 (SHA-256, 600k iterations, 16-byte random salt)
         |
         v
 AES-256-GCM key (in-memory CryptoKey, never serialized)
@@ -40,13 +46,19 @@ AES-256-GCM key (in-memory CryptoKey, never serialized)
 localStorage: encrypted JSON blob  <--->  entries array (in memory)
 ```
 
-1. **Setup** — on first use, a 16-byte random salt is generated and stored in localStorage. The user's password is fed through PBKDF2 to derive an AES-256-GCM key. A known validation string is encrypted and stored to verify the password on future unlocks.
+1. **Setup** — on first use, a 16-byte random salt is generated and stored in localStorage. The user's password is fed through PBKDF2 to derive an AES-256-GCM key. A known validation string is encrypted and stored to verify the password on future unlocks. The iteration count is recorded alongside the salt so it can be raised later without locking existing vaults out.
 
-2. **Unlock** — the stored salt and validation ciphertext are read back. The password is re-derived and used to decrypt the validation string. If it matches, the vault opens.
+2. **Unlock** — the stored salt and validation ciphertext are read back. The password is re-derived at the vault's recorded iteration count and used to decrypt the validation string. If it matches, the vault opens. A vault still on an older iteration count is re-keyed at this point (see *Key derivation parameters* below).
 
 3. **Session** — entries live as a plain JavaScript array in memory and are rendered as HTML strings. On any write (create, edit, delete, import), the full array is serialized to JSON, encrypted with the active key, and written back to localStorage.
 
-4. **Lock** — the CryptoKey is set to `null`, the entries array is cleared, and the app returns to the unlock screen. The encrypted data remains in localStorage.
+4. **Lock** — the CryptoKey is set to `null`, the entries array is cleared, and the app returns to the unlock screen. The encrypted data remains in localStorage. Locking happens on demand, on `ctrl+L`, or automatically after the configured idle period.
+
+### Key derivation parameters
+
+The iteration count lives in localStorage under `vault_kdf_params` rather than being hardcoded at the call site. A vault with no such record predates the change and is assumed to be at the original 100,000 iterations.
+
+On a successful unlock, if the vault's recorded count is below the current target (600,000, per OWASP guidance for PBKDF2-SHA256), the vault is re-keyed in place: a new key is derived at the higher count, and the validation token and entry blob are re-encrypted under it. Every crypto operation completes before the first `localStorage` write, so a failure part-way through leaves the old — still valid — vault untouched. The upgrade costs roughly half a second, once.
 
 ### Entry model
 
@@ -57,13 +69,31 @@ localStorage: encrypted JSON blob  <--->  entries array (in memory)
   type: 'api-key',   // or 'prompt'
   value: 'sk-proj-...',
   createdAt: 1715000000000,
-  lastUsedAt: 1715100000000
+  lastUsedAt: 1715100000000,
+  rotateDays: 90,             // 0 = no rotation reminder
+  rotatedAt: 1715000000000    // clock restarts when the value changes
 }
 ```
 
 ### Import/export
 
-The export format is a JSON object with app name, version number, ISO export timestamp, and the entries array. The import handler accepts both the wrapped format and a raw array (for backwards compatibility), resolves ID collisions by re-generating IDs, and appends entries to the existing vault.
+Exports are encrypted. The file is a JSON object holding the app name, format version, ISO export timestamp, entry count, the KDF parameters used, and the ciphertext:
+
+```js
+{
+  app: 'Vault',
+  version: 2,
+  encrypted: true,
+  exportedAt: '2026-01-01T00:00:00.000Z',
+  entryCount: 12,
+  kdf:    { name: 'PBKDF2', hash: 'SHA-256', iterations: 600000, salt: '<base64>' },
+  cipher: { name: 'AES-GCM', iv: '<base64>', ciphertext: '<base64>' }
+}
+```
+
+The backup passphrase is independent of the master password and the file embeds its own salt, so a backup restores on a machine that has none of this vault's localStorage. Import detects the encrypted format and prompts for the passphrase; it still accepts the v1 wrapped format and a raw array, so older backups keep working. Either way it resolves ID collisions by re-generating IDs and appends to the existing vault.
+
+A cleartext export is still available behind an explicit opt-in checkbox, and the file it produces is named `..._CLEARTEXT.json` so it is obvious what it is.
 
 ## What did I personally figure out?
 

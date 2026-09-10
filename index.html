@@ -153,6 +153,47 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #4a4453;
         }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 4px;
+            border-radius: 2px;
+            background: #30363d;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #d5bbff;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            border: none;
+            border-radius: 50%;
+            background: #d5bbff;
+            cursor: pointer;
+        }
+
+        kbd {
+            font-family: "JetBrains Mono", monospace;
+        }
+
+        @keyframes vault-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.45; }
+        }
+
+        .pulse-warn {
+            animation: vault-pulse 1.2s ease-in-out infinite;
+        }
     </style>
 </head>
 
@@ -168,6 +209,7 @@
             <div id="search-container" class="flex items-center gap-xs text-mono-ui-sm font-mono-ui-sm text-on-surface-variant bg-[#161b22] border border-grid px-sm py-[2px] rounded focus-within:border-primary flex-1 max-w-xs">
                 <span class="text-primary font-bold">&gt;</span>
                 <input id="search-input" type="text" placeholder="search entries..." class="bg-transparent border-none outline-none text-on-surface text-mono-ui-sm font-mono-ui-sm focus:ring-0 p-0 w-full placeholder:text-on-surface-variant/40" />
+                <kbd class="hidden sm:inline shrink-0 px-xs py-[1px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-on-surface-variant/70">/</kbd>
             </div>
         </div>
         <!-- Trailing Actions -->
@@ -176,11 +218,24 @@
                 <span class="material-symbols-outlined text-[16px]">lock</span>
                 <span class="hidden sm:inline">lock</span>
             </button>
+            <button id="btn-settings" onclick="openSettings()" title="Settings (,)" aria-label="Settings" class="btn-action h-8 sm:h-7 px-sm rounded font-mono-ui-sm text-mono-ui-sm flex items-center justify-center transition-colors duration-100 min-h-[44px] sm:min-h-[28px] min-w-[44px] sm:min-w-0 text-on-surface-variant hover:text-primary hidden">
+                <span class="material-symbols-outlined text-[16px]">settings</span>
+            </button>
+            <button id="btn-help" onclick="openShortcutsHelp()" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" class="btn-action h-8 sm:h-7 px-sm rounded font-mono-ui-sm text-mono-ui-sm flex items-center justify-center transition-colors duration-100 min-h-[44px] sm:min-h-[28px] min-w-[44px] sm:min-w-0 text-on-surface-variant hover:text-primary hidden">
+                <span class="material-symbols-outlined text-[16px]">keyboard</span>
+            </button>
             <button id="btn-new-entry" class="btn-action h-8 sm:h-7 px-md rounded font-mono-ui-sm text-mono-ui-sm flex items-center gap-xs transition-colors duration-100 shrink-0 min-h-[44px] sm:min-h-[28px] min-w-[44px] sm:min-w-0 justify-center hidden">
                 <span>+ new</span>
             </button>
         </div>
     </header>
+
+    <!-- Idle auto-lock warning -->
+    <div id="idle-warning" class="hidden fixed top-14 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-sm bg-[#161b22] border border-tertiary/60 text-tertiary px-md py-xs rounded shadow-lg text-mono-ui-sm font-mono-ui-sm">
+        <span class="material-symbols-outlined text-[18px] pulse-warn">lock_clock</span>
+        <span>Locking in <span data-role="count" class="font-bold">30</span>s</span>
+        <button type="button" onclick="stayUnlocked()" class="btn-action px-sm py-[2px] rounded text-sans-label font-sans-label hover:text-primary">Stay unlocked</button>
+    </div>
 
     <!-- Authentication Overlay Container (Setup & Unlock Screens) -->
     <div id="auth-container" class="flex-1 flex flex-col items-center justify-center p-md bg-[#0d1117] hidden">
@@ -200,11 +255,11 @@
             <!-- Bottom Left Actions (Export / Import JSON) -->
             <div class="p-sm border-t border-grid flex flex-col gap-xs shrink-0 bg-surface">
                 <div class="flex gap-xs">
-                    <button onclick="exportVaultJSON()" class="btn-action flex-1 py-xs px-xs rounded text-sans-label font-mono-ui-sm flex items-center justify-center gap-xs hover:text-primary transition-colors min-h-[32px]" title="Export backup JSON">
+                    <button onclick="exportVaultJSON()" class="btn-action flex-1 py-xs px-xs rounded text-sans-label font-mono-ui-sm flex items-center justify-center gap-xs hover:text-primary transition-colors min-h-[32px]" title="Export an encrypted backup">
                         <span class="material-symbols-outlined text-[14px]">download</span>
                         <span>export</span>
                     </button>
-                    <button onclick="triggerImportJSON()" class="btn-action flex-1 py-xs px-xs rounded text-sans-label font-mono-ui-sm flex items-center justify-center gap-xs hover:text-primary transition-colors min-h-[32px]" title="Import backup JSON">
+                    <button onclick="triggerImportJSON()" class="btn-action flex-1 py-xs px-xs rounded text-sans-label font-mono-ui-sm flex items-center justify-center gap-xs hover:text-primary transition-colors min-h-[32px]" title="Import a backup">
                         <span class="material-symbols-outlined text-[14px]">upload</span>
                         <span>import</span>
                     </button>
@@ -244,13 +299,26 @@
         </main>
     </div>
 
+    <!-- Overlay roots (kept outside renderApp's containers so a re-render cannot close them) -->
+    <div id="modal-root" class="hidden fixed inset-0 z-50 flex items-center justify-center p-md"></div>
+    <div id="palette-root" class="hidden fixed inset-0 z-50 flex items-start justify-center p-md pt-[12vh]"></div>
+
     <!-- Application Script -->
     <script>
         // Storage Keys for Encrypted Data
         const SALT_KEY = 'vault_salt';
         const AUTH_KEY = 'vault_auth_token';
         const DATA_KEY = 'vault_encrypted_data';
+        const KDF_KEY = 'vault_kdf_params';
+        const SETTINGS_KEY = 'vault_settings';
         const AUTH_VALIDATION_STRING = 'VAULT_AUTH_VERIFIED_V1';
+
+        // Key derivation. Vaults created before the iteration count was recorded
+        // used 100k; they are re-keyed in place on the next successful unlock.
+        const PBKDF2_ITERATIONS = 600000;          // OWASP guidance for PBKDF2-SHA256
+        const LEGACY_PBKDF2_ITERATIONS = 100000;
+        const EXPORT_FORMAT_VERSION = 2;
+        const MIN_MASTER_PASSWORD_LENGTH = 8;
 
         // App State
         let masterKey = null; // CryptoKey object when unlocked
@@ -264,6 +332,7 @@
         let isCreating = false;
         let deleteConfirmId = null;
         let revealedState = {};
+        let initWeakAccepted = false;   // second submit confirms a weak master password
 
         // Default Seed Data if vault is newly initialized
         const defaultSeed = [
@@ -307,7 +376,24 @@
             return bytes.buffer;
         }
 
-        async function deriveMasterKey(password, saltUint8Array) {
+        function getKdfParams() {
+            try {
+                const raw = localStorage.getItem(KDF_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed && Number.isFinite(parsed.iterations) && parsed.iterations > 0) {
+                        return { iterations: parsed.iterations, hash: parsed.hash || 'SHA-256' };
+                    }
+                }
+            } catch (e) { /* fall through to the pre-versioning default */ }
+            return { iterations: LEGACY_PBKDF2_ITERATIONS, hash: 'SHA-256' };
+        }
+
+        function setKdfParams(params) {
+            localStorage.setItem(KDF_KEY, JSON.stringify(params));
+        }
+
+        async function deriveMasterKey(password, saltUint8Array, iterations, hash) {
             const encoder = new TextEncoder();
             const baseKey = await crypto.subtle.importKey(
                 "raw",
@@ -320,8 +406,8 @@
                 {
                     name: "PBKDF2",
                     salt: saltUint8Array,
-                    iterations: 100000,
-                    hash: "SHA-256"
+                    iterations: iterations || PBKDF2_ITERATIONS,
+                    hash: hash || "SHA-256"
                 },
                 baseKey,
                 { name: "AES-GCM", length: 256 },
@@ -400,8 +486,8 @@
             const confirm = document.getElementById('init-password-confirm').value;
             const errorEl = document.getElementById('init-error');
 
-            if (password.length < 4) {
-                errorEl.textContent = 'Password must be at least 4 characters long.';
+            if (password.length < MIN_MASTER_PASSWORD_LENGTH) {
+                errorEl.textContent = `Password must be at least ${MIN_MASTER_PASSWORD_LENGTH} characters long.`;
                 errorEl.classList.remove('hidden');
                 return;
             }
@@ -412,14 +498,30 @@
                 return;
             }
 
+            // A very weak master password undoes the encryption behind it, so make
+            // the user opt in a second time rather than blocking them outright.
+            const strength = estimatePasswordStrength(password);
+            if (strength.score <= 1 && !initWeakAccepted) {
+                initWeakAccepted = true;
+                errorEl.innerHTML = `That password is <span class="text-error font-bold">${strength.label}</span> &mdash; everything in the vault is only as safe as it is. Submit again to use it anyway, or pick a stronger one.`;
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            errorEl.classList.add('hidden');
+            setAuthFormBusy('init-submit', true, 'Deriving key...');
+            await nextPaint();
+
             try {
                 // Generate 16-byte salt
                 const saltBytes = crypto.getRandomValues(new Uint8Array(16));
                 const saltB64 = bufferToBase64(saltBytes);
                 localStorage.setItem(SALT_KEY, saltB64);
 
-                // Derive key
-                const key = await deriveMasterKey(password, saltBytes);
+                // Derive key at the current iteration count and record it, so a
+                // future bump can re-key existing vaults instead of locking them out.
+                const key = await deriveMasterKey(password, saltBytes, PBKDF2_ITERATIONS, 'SHA-256');
+                setKdfParams({ iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' });
 
                 // Encrypt auth validation token
                 const authPayload = await encryptText(AUTH_VALIDATION_STRING, key);
@@ -439,9 +541,11 @@
                 }
 
                 await saveEntries();
+                startIdleWatch();
                 renderApp();
             } catch (err) {
                 console.error('Setup failed:', err);
+                setAuthFormBusy('init-submit', false);
                 errorEl.textContent = 'Failed to initialize encryption.';
                 errorEl.classList.remove('hidden');
             }
@@ -463,8 +567,13 @@
                     return;
                 }
 
+                errorEl.classList.add('hidden');
+                setAuthFormBusy('unlock-submit', true, 'Deriving key...');
+                await nextPaint();
+
                 const saltBytes = new Uint8Array(base64ToBuffer(saltB64));
-                const key = await deriveMasterKey(password, saltBytes);
+                const kdf = getKdfParams();
+                const key = await deriveMasterKey(password, saltBytes, kdf.iterations, kdf.hash);
                 const authPayload = JSON.parse(authStr);
 
                 // Verify password by attempting decryption of validation string
@@ -474,20 +583,34 @@
                     masterKey = key;
                     isLocked = false;
                     await loadAndDecryptEntries();
+
+                    const upgradedKey = await upgradeKdfIfNeeded(password, saltBytes, kdf);
+                    if (upgradedKey) {
+                        masterKey = upgradedKey;
+                        showToast(`Re-encrypted at ${PBKDF2_ITERATIONS.toLocaleString()} KDF iterations.`);
+                    }
+
+                    startIdleWatch();
                     renderApp();
                 } else {
+                    setAuthFormBusy('unlock-submit', false);
                     errorEl.textContent = 'Invalid master password.';
                     errorEl.classList.remove('hidden');
                 }
             } catch (err) {
                 console.error('Decryption failed:', err);
+                setAuthFormBusy('unlock-submit', false);
                 errorEl.textContent = 'Invalid master password.';
                 errorEl.classList.remove('hidden');
             }
         };
 
         // Lock Action
-        window.lockVault = function() {
+        window.lockVault = function(reason) {
+            clearPwRevealTimers();
+            stopIdleWatch();
+            closeModal();
+            closePalette();
             masterKey = null;
             isLocked = true;
             entries = [];
@@ -497,20 +620,1157 @@
             deleteConfirmId = null;
             revealedState = {};
             renderApp();
+            if (reason) showToast(reason);
         };
+
+        // --- Master Password Field (with temporary reveal) ---
+        const PW_REVEAL_MS = 10000; // auto-hide again so a revealed password never lingers
+        let pwRevealTimers = {};
+
+        function passwordField(id, label, placeholder, extraAttrs, opts) {
+            const o = opts || {};
+            return `
+                        <div>
+                            <label for="${id}" class="block text-sans-label text-on-surface-variant uppercase mb-xs">${label}</label>
+                            <div class="relative">
+                                <input id="${id}" type="password" required ${extraAttrs || ''} placeholder="${placeholder}" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm rounded pl-sm ${o.generator ? 'pr-[72px]' : 'pr-[40px]'} py-xs focus:border-primary focus:outline-none" />
+                                <div class="absolute inset-y-0 right-0 flex items-center">
+                                    ${o.generator ? `
+                                    <button type="button" onclick="openGenerator('${id}')" aria-label="Generate password" title="Generate a password" class="w-[36px] h-full flex items-center justify-center text-on-surface-variant hover:text-primary focus:text-primary focus:outline-none transition-colors">
+                                        <span class="material-symbols-outlined text-[18px]">casino</span>
+                                    </button>` : ''}
+                                    <button type="button" onclick="togglePasswordVisibility('${id}', this)" aria-label="Show password" aria-pressed="false" title="Show password (hides again after ${PW_REVEAL_MS / 1000}s)" class="w-[36px] h-full flex items-center justify-center text-on-surface-variant hover:text-primary focus:text-primary focus:outline-none transition-colors">
+                                        <span class="material-symbols-outlined text-[18px]">visibility</span>
+                                    </button>
+                                </div>
+                            </div>
+                            ${o.meter ? strengthMeterMarkup(id + '-strength') : ''}
+                        </div>`;
+        }
+
+        function clearPwRevealTimers() {
+            Object.keys(pwRevealTimers).forEach(k => clearTimeout(pwRevealTimers[k]));
+            pwRevealTimers = {};
+        }
+
+        window.togglePasswordVisibility = function(inputId, btn) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+
+            if (pwRevealTimers[inputId]) {
+                clearTimeout(pwRevealTimers[inputId]);
+                delete pwRevealTimers[inputId];
+            }
+
+            const show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+
+            const icon = btn.querySelector('.material-symbols-outlined');
+            if (icon) icon.textContent = show ? 'visibility_off' : 'visibility';
+            btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+            btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+            btn.classList.toggle('text-primary', show);
+
+            // Keep typing where the user left off
+            const caret = input.value.length;
+            input.focus();
+            try { input.setSelectionRange(caret, caret); } catch (e) {}
+
+            if (show) {
+                pwRevealTimers[inputId] = setTimeout(() => {
+                    delete pwRevealTimers[inputId];
+                    if (document.getElementById(inputId) === input && input.type === 'text') {
+                        togglePasswordVisibility(inputId, btn);
+                    }
+                }, PW_REVEAL_MS);
+            }
+        };
+
+        // --- Small async/UI utilities ---
+        function nextPaint() {
+            return new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        }
+
+        function setAuthFormBusy(btnId, busy, label) {
+            const btn = document.getElementById(btnId);
+            if (!btn) return;
+            btn.disabled = busy;
+            btn.classList.toggle('opacity-60', busy);
+            btn.classList.toggle('cursor-wait', busy);
+            const text = btn.querySelector('.btn-label');
+            if (!text) return;
+            if (busy) {
+                if (!btn.dataset.idleLabel) btn.dataset.idleLabel = text.textContent;
+                text.textContent = label || 'Working...';
+            } else if (btn.dataset.idleLabel) {
+                text.textContent = btn.dataset.idleLabel;
+            }
+        }
+
+        // Re-derive the master key at the current iteration count and rewrite the
+        // vault. Every crypto operation completes before the first localStorage
+        // write, so a failure part-way leaves the old (still valid) vault intact.
+        async function upgradeKdfIfNeeded(password, saltBytes, currentParams) {
+            if (currentParams.iterations >= PBKDF2_ITERATIONS && currentParams.hash === 'SHA-256') return null;
+            try {
+                const newKey = await deriveMasterKey(password, saltBytes, PBKDF2_ITERATIONS, 'SHA-256');
+                const authPayload = await encryptText(AUTH_VALIDATION_STRING, newKey);
+                const dataPayload = await encryptText(JSON.stringify(entries), newKey);
+                localStorage.setItem(DATA_KEY, JSON.stringify(dataPayload));
+                localStorage.setItem(AUTH_KEY, JSON.stringify(authPayload));
+                setKdfParams({ iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' });
+                return newKey;
+            } catch (e) {
+                console.error('KDF upgrade failed, keeping existing parameters:', e);
+                return null;
+            }
+        }
+
+        // --- Settings (plaintext on purpose: no secrets live here) ---
+        const DEFAULT_SETTINGS = { autoLockMinutes: 5, rotationDefaultDays: 0 };
+
+        function getSettings() {
+            try {
+                const raw = localStorage.getItem(SETTINGS_KEY);
+                if (raw) return Object.assign({}, DEFAULT_SETTINGS, JSON.parse(raw));
+            } catch (e) { /* fall through to defaults */ }
+            return Object.assign({}, DEFAULT_SETTINGS);
+        }
+
+        function saveSettings(patch) {
+            const next = Object.assign(getSettings(), patch);
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+            return next;
+        }
+
+        // --- Password strength estimate ---
+        // A charset-entropy model with penalties. It is a rough guide, not a real
+        // cracking-cost simulation, so it deliberately errs on the pessimistic side.
+        const COMMON_PASSWORDS = new Set([
+            'password', 'password1', 'password123', 'passw0rd', '123456', '1234567', '12345678', '123456789',
+            '1234567890', 'qwerty', 'qwerty123', 'qwertyuiop', 'abc123', 'letmein', 'monkey', 'dragon',
+            '111111', '000000', '654321', 'iloveyou', 'admin', 'welcome', 'login', 'master', 'hunter2',
+            '1q2w3e4r', 'zaq12wsx', 'qazwsx', 'sunshine', 'princess', 'football', 'baseball', 'trustno1',
+            'superman', 'shadow', 'michael', 'jennifer', 'jordan', 'harley', 'ranger', 'batman', 'soccer',
+            'starwars', 'whatever', 'changeme', 'secret', 'vault', 'test123'
+        ]);
+
+        // word + digits ("summer2024", "Dragon99") is the most common human pattern
+        // and dies to any wordlist rule, so a charset count badly overrates it.
+        const COMMON_BASE_WORDS = new Set([
+            'summer', 'winter', 'spring', 'autumn', 'january', 'february', 'march', 'april', 'may', 'june',
+            'july', 'august', 'september', 'october', 'november', 'december', 'hello', 'test', 'vault',
+            'dragon', 'monkey', 'football', 'baseball', 'basketball', 'soccer', 'hockey', 'princess',
+            'sunshine', 'superman', 'batman', 'shadow', 'master', 'freedom', 'whatever', 'ninja', 'access',
+            'flower', 'starwars', 'computer', 'internet', 'google', 'apple', 'samsung', 'chocolate',
+            'cookie', 'pepper', 'charlie', 'jordan', 'michael', 'jennifer', 'daniel', 'jessica', 'ashley',
+            'nicole', 'hunter', 'ranger', 'buster', 'thomas', 'robert', 'matthew', 'andrew', 'joshua',
+            'amanda', 'welcome', 'admin', 'login', 'secret', 'letmein', 'qwerty', 'password', 'iloveyou',
+            'money', 'love', 'happy', 'friend', 'family', 'hello123'
+        ]);
+
+        const STRENGTH_LEVELS = [
+            { label: 'very weak', color: '#f85149' },
+            { label: 'weak',      color: '#db6d28' },
+            { label: 'fair',      color: '#d29922' },
+            { label: 'good',      color: '#7bdb80' },
+            { label: 'strong',    color: '#3fb950' }
+        ];
+
+        const KEYBOARD_RUNS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm', 'abcdefghijklmnopqrstuvwxyz', '01234567890'];
+
+        function charPoolSize(pw) {
+            let pool = 0;
+            if (/[a-z]/.test(pw)) pool += 26;
+            if (/[A-Z]/.test(pw)) pool += 26;
+            if (/[0-9]/.test(pw)) pool += 10;
+            if (/[^a-zA-Z0-9]/.test(pw)) pool += 33;
+            return pool || 1;
+        }
+
+        // Length of the shortest unit the string is a whole repetition of
+        // ("abcabcabc" -> 3), so padding by repetition stops buying entropy.
+        function effectiveLength(pw) {
+            for (let unit = 1; unit <= pw.length / 2; unit++) {
+                if (pw.length % unit !== 0) continue;
+                const chunk = pw.slice(0, unit);
+                if (chunk.repeat(pw.length / unit) === pw) return unit;
+            }
+            return pw.length;
+        }
+
+        function sequentialRunPenalty(pw) {
+            const lower = pw.toLowerCase();
+            let penalty = 0;
+            KEYBOARD_RUNS.forEach(run => {
+                const reversed = run.split('').reverse().join('');
+                for (let len = 3; len <= Math.min(lower.length, run.length); len++) {
+                    for (let i = 0; i + len <= run.length; i++) {
+                        const slice = run.slice(i, i + len);
+                        const back = reversed.slice(i, i + len);
+                        if (lower.includes(slice) || lower.includes(back)) penalty = Math.max(penalty, len * 1.5);
+                    }
+                }
+            });
+            return penalty;
+        }
+
+        function estimatePasswordStrength(pw) {
+            if (!pw) return { score: 0, bits: 0, label: 'empty', hint: '', color: STRENGTH_LEVELS[0].color };
+
+            const lower = pw.toLowerCase();
+            if (COMMON_PASSWORDS.has(lower)) {
+                return { score: 0, bits: 4, label: 'very weak', color: STRENGTH_LEVELS[0].color, hint: 'This is on every cracking wordlist.' };
+            }
+
+            // A known word with digits/punctuation tacked on: a wordlist plus a
+            // year rule finds this in seconds regardless of how long it looks.
+            const base = lower.replace(/[0-9!@#$%^&*._\-]+$/, '');
+            if (base.length >= 3 && base.length <= 12 && (COMMON_BASE_WORDS.has(base) || COMMON_PASSWORDS.has(base))) {
+                return { score: 0, bits: 20, label: 'very weak', color: STRENGTH_LEVELS[0].color, hint: 'A dictionary word with digits on the end is the first thing cracked.' };
+            }
+
+            const pool = charPoolSize(pw);
+            let bits = effectiveLength(pw) * Math.log2(pool);
+            bits -= sequentialRunPenalty(pw);
+            if (/^[0-9]+$/.test(pw)) bits *= 0.7;                       // digits-only reads as a date or PIN
+            if (/^[a-z]+$/.test(pw) && pw.length < 12) bits *= 0.85;    // short all-lowercase is dictionary bait
+            bits = Math.max(0, bits);
+
+            let score;
+            if (bits < 28) score = 0;
+            else if (bits < 40) score = 1;
+            else if (bits < 60) score = 2;
+            else if (bits < 80) score = 3;
+            else score = 4;
+
+            const missing = [];
+            if (!/[a-z]/.test(pw)) missing.push('lowercase');
+            if (!/[A-Z]/.test(pw)) missing.push('uppercase');
+            if (!/[0-9]/.test(pw)) missing.push('digits');
+            if (!/[^a-zA-Z0-9]/.test(pw)) missing.push('symbols');
+
+            let hint;
+            if (score >= 3) hint = `~${Math.round(bits)} bits of entropy.`;
+            else if (pw.length < 12) hint = `Length helps most — ~${Math.round(bits)} bits so far.`;
+            else if (missing.length) hint = `Add ${missing.slice(0, 2).join(' or ')} — ~${Math.round(bits)} bits so far.`;
+            else hint = `~${Math.round(bits)} bits of entropy.`;
+
+            return { score, bits, label: STRENGTH_LEVELS[score].label, color: STRENGTH_LEVELS[score].color, hint };
+        }
+
+        function strengthMeterMarkup(id) {
+            return `
+            <div id="${id}" class="mt-xs hidden">
+                <div class="flex items-center gap-sm">
+                    <div class="flex gap-[3px] flex-1" data-role="bars">
+                        ${[0, 1, 2, 3, 4].map(() => '<div class="h-[3px] flex-1 rounded-full bg-[#30363d] transition-colors duration-150"></div>').join('')}
+                    </div>
+                    <span data-role="label" class="text-sans-label font-sans-label shrink-0 w-[70px] text-right"></span>
+                </div>
+                <div data-role="hint" class="text-sans-label font-sans-label text-on-surface-variant/70 mt-[3px] min-h-[16px]"></div>
+            </div>`;
+        }
+
+        function renderStrengthMeter(meterId, value) {
+            const meter = document.getElementById(meterId);
+            if (!meter) return;
+            if (!value) { meter.classList.add('hidden'); return; }
+            meter.classList.remove('hidden');
+
+            const strength = estimatePasswordStrength(value);
+            const bars = meter.querySelector('[data-role="bars"]').children;
+            for (let i = 0; i < bars.length; i++) {
+                bars[i].style.backgroundColor = i <= strength.score ? strength.color : '#30363d';
+            }
+            const label = meter.querySelector('[data-role="label"]');
+            label.textContent = strength.label;
+            label.style.color = strength.color;
+            meter.querySelector('[data-role="hint"]').textContent = strength.hint;
+        }
+
+        function wireStrengthMeter(inputId, meterId) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            const update = () => renderStrengthMeter(meterId, input.value);
+            input.addEventListener('input', update);
+            update();
+        }
+
+        // --- Modal shell ---
+        // Rendered into its own root so renderApp() (which fires on every search
+        // keystroke) never blows an open modal away mid-interaction.
+        let modalOnClose = null;
+        let lastFocusedBeforeModal = null;
+
+        function isModalOpen() {
+            const root = document.getElementById('modal-root');
+            return !!root && !root.classList.contains('hidden');
+        }
+
+        function openModal(config) {
+            closeModal();
+            lastFocusedBeforeModal = document.activeElement;
+            modalOnClose = config.onClose || null;
+
+            const root = document.getElementById('modal-root');
+            root.innerHTML = `
+            <div class="absolute inset-0 bg-black/70" onclick="closeModal()"></div>
+            <div role="dialog" aria-modal="true" aria-label="${escapeHtml(config.title)}" class="relative w-full ${config.wide ? 'max-w-2xl' : 'max-w-md'} max-h-[85vh] overflow-y-auto bg-[#161b22] border border-grid rounded p-lg flex flex-col gap-md shadow-2xl">
+                <div class="flex items-center justify-between gap-sm">
+                    <div class="flex items-center gap-xs text-primary font-bold text-mono-ui-lg">
+                        <span class="material-symbols-outlined text-[20px]">${config.icon || 'tune'}</span>
+                        <span>${escapeHtml(config.title)}</span>
+                    </div>
+                    <button type="button" onclick="closeModal()" aria-label="Close" class="text-on-surface-variant hover:text-primary min-w-[32px] min-h-[32px] flex items-center justify-center">
+                        <span class="material-symbols-outlined text-[18px]">close</span>
+                    </button>
+                </div>
+                ${config.body}
+            </div>`;
+            root.classList.remove('hidden');
+            if (config.onOpen) config.onOpen();
+        }
+
+        window.closeModal = function() {
+            const root = document.getElementById('modal-root');
+            if (!root || root.classList.contains('hidden')) return;
+            root.classList.add('hidden');
+            root.innerHTML = '';
+            const cb = modalOnClose;
+            modalOnClose = null;
+            if (cb) cb();
+            if (lastFocusedBeforeModal && document.contains(lastFocusedBeforeModal)) lastFocusedBeforeModal.focus();
+            lastFocusedBeforeModal = null;
+        };
+
+        // --- Password generator ---
+        const GEN_SETS = {
+            lower: 'abcdefghijklmnopqrstuvwxyz',
+            upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+            digits: '0123456789',
+            symbols: '!@#$%^&*()-_=+[]{}<>?,.:;'
+        };
+        const AMBIGUOUS_CHARS = 'Il1O0o|`';
+
+        let generatorOptions = { length: 24, lower: true, upper: true, digits: true, symbols: true, avoidAmbiguous: true };
+        let generatorTargetId = null;
+
+        // Rejection sampling — `% max` on a raw 32-bit draw would bias the low end.
+        function randomIndex(maxExclusive) {
+            const limit = Math.floor(0x100000000 / maxExclusive) * maxExclusive;
+            const buf = new Uint32Array(1);
+            let value;
+            do {
+                crypto.getRandomValues(buf);
+                value = buf[0];
+            } while (value >= limit);
+            return value % maxExclusive;
+        }
+
+        function generatePassword(opts) {
+            const active = Object.keys(GEN_SETS).filter(k => opts[k]);
+            if (active.length === 0) return '';
+
+            const sets = active.map(k => {
+                const chars = opts.avoidAmbiguous
+                    ? GEN_SETS[k].split('').filter(c => !AMBIGUOUS_CHARS.includes(c)).join('')
+                    : GEN_SETS[k];
+                return chars || GEN_SETS[k];
+            });
+            const pool = sets.join('');
+            const length = Math.max(opts.length, sets.length);
+
+            // One character from each selected set first, so a generated password
+            // always satisfies the classes the user asked for.
+            const chars = sets.map(set => set[randomIndex(set.length)]);
+            while (chars.length < length) chars.push(pool[randomIndex(pool.length)]);
+
+            for (let i = chars.length - 1; i > 0; i--) {
+                const j = randomIndex(i + 1);
+                [chars[i], chars[j]] = [chars[j], chars[i]];
+            }
+            return chars.join('');
+        }
+
+        function generatorBody() {
+            const o = generatorOptions;
+            const toggle = (key, label) => `
+                <label class="flex items-center gap-xs text-mono-ui-sm cursor-pointer select-none">
+                    <input type="checkbox" data-gen-opt="${key}" ${o[key] ? 'checked' : ''} class="w-4 h-4 rounded bg-[#0d1117] border-grid text-primary focus:ring-0 focus:ring-offset-0" />
+                    <span>${label}</span>
+                </label>`;
+            return `
+            <div class="flex flex-col gap-md">
+                <div class="bg-[#0d1117] border border-grid rounded p-md flex items-start gap-sm">
+                    <pre id="gen-output" class="flex-1 m-0 text-mono-code font-mono-code text-primary whitespace-pre-wrap break-all leading-relaxed min-h-[40px]"></pre>
+                    <button type="button" onclick="rollGenerated()" title="Regenerate" aria-label="Regenerate" class="btn-action shrink-0 w-8 h-8 rounded flex items-center justify-center hover:text-primary">
+                        <span class="material-symbols-outlined text-[18px]">refresh</span>
+                    </button>
+                </div>
+                ${strengthMeterMarkup('gen-strength')}
+                <div>
+                    <div class="flex items-center justify-between text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">
+                        <span>Length</span>
+                        <span id="gen-length-value" class="text-primary">${o.length}</span>
+                    </div>
+                    <input id="gen-length" type="range" min="8" max="64" step="1" value="${o.length}" class="w-full accent-primary" />
+                </div>
+                <div class="grid grid-cols-2 gap-xs">
+                    ${toggle('lower', 'a-z')}
+                    ${toggle('upper', 'A-Z')}
+                    ${toggle('digits', '0-9')}
+                    ${toggle('symbols', '!@#$')}
+                </div>
+                ${toggle('avoidAmbiguous', 'Avoid look-alikes (Il1O0o)')}
+                <div class="flex justify-end gap-sm pt-xs">
+                    <button type="button" onclick="copyGenerated()" class="btn-action px-md py-xs rounded text-mono-ui-sm min-h-[36px] flex items-center gap-xs">
+                        <span class="material-symbols-outlined text-[16px]">content_copy</span>
+                        <span>Copy</span>
+                    </button>
+                    ${generatorTargetId ? `
+                    <button type="button" onclick="useGenerated()" class="btn-action px-md py-xs rounded text-mono-ui-sm text-primary border-primary/50 hover:border-primary min-h-[36px] flex items-center gap-xs">
+                        <span class="material-symbols-outlined text-[16px]">check</span>
+                        <span>Use this</span>
+                    </button>` : ''}
+                </div>
+            </div>`;
+        }
+
+        window.rollGenerated = function() {
+            const out = document.getElementById('gen-output');
+            if (!out) return;
+            const value = generatePassword(generatorOptions);
+            out.textContent = value || 'Select at least one character set.';
+            renderStrengthMeter('gen-strength', value);
+        };
+
+        window.copyGenerated = function() {
+            const out = document.getElementById('gen-output');
+            if (!out || !out.textContent) return;
+            navigator.clipboard.writeText(out.textContent)
+                .then(() => showToast('Generated password copied.'))
+                .catch(() => showToast('Clipboard unavailable.'));
+        };
+
+        window.useGenerated = function() {
+            const out = document.getElementById('gen-output');
+            const target = generatorTargetId && document.getElementById(generatorTargetId);
+            if (!out || !target) return;
+            target.value = out.textContent;
+            target.dispatchEvent(new Event('input', { bubbles: true }));
+            closeModal();
+            target.focus();
+            showToast('Generated password inserted.');
+        };
+
+        window.openGenerator = function(targetInputId) {
+            generatorTargetId = targetInputId && document.getElementById(targetInputId) ? targetInputId : null;
+            openModal({
+                title: 'generate password',
+                icon: 'casino',
+                body: generatorBody(),
+                onClose: () => { generatorTargetId = null; },
+                onOpen: () => {
+                    const slider = document.getElementById('gen-length');
+                    slider.addEventListener('input', e => {
+                        generatorOptions.length = parseInt(e.target.value, 10);
+                        document.getElementById('gen-length-value').textContent = generatorOptions.length;
+                        rollGenerated();
+                    });
+                    document.querySelectorAll('[data-gen-opt]').forEach(box => {
+                        box.addEventListener('change', e => {
+                            const key = e.target.dataset.genOpt;
+                            generatorOptions[key] = e.target.checked;
+                            const anySet = ['lower', 'upper', 'digits', 'symbols'].some(k => generatorOptions[k]);
+                            if (!anySet) {
+                                generatorOptions[key] = true;
+                                e.target.checked = true;
+                                showToast('At least one character set is required.');
+                            }
+                            rollGenerated();
+                        });
+                    });
+                    rollGenerated();
+                }
+            });
+        };
+
+        // --- Auto-lock on idle ---
+        const IDLE_WARNING_SECONDS = 30;
+        const IDLE_EVENTS = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart', 'scroll'];
+
+        let idleDeadline = 0;
+        let idleTicker = null;
+        let idleWatching = false;
+
+        function autoLockMs() {
+            const minutes = getSettings().autoLockMinutes;
+            return minutes > 0 ? minutes * 60000 : 0;
+        }
+
+        function hideIdleWarning() {
+            const el = document.getElementById('idle-warning');
+            if (el) el.classList.add('hidden');
+        }
+
+        function showIdleWarning(secondsLeft) {
+            const el = document.getElementById('idle-warning');
+            if (!el) return;
+            el.classList.remove('hidden');
+            const count = el.querySelector('[data-role="count"]');
+            if (count) count.textContent = secondsLeft;
+        }
+
+        function idleTick() {
+            if (!idleWatching || isLocked) return;
+            const remaining = idleDeadline - Date.now();
+            if (remaining <= 0) {
+                lockVault('Vault auto-locked after inactivity.');
+                return;
+            }
+            if (remaining <= IDLE_WARNING_SECONDS * 1000) showIdleWarning(Math.ceil(remaining / 1000));
+            else hideIdleWarning();
+        }
+
+        window.resetIdleTimer = function() {
+            if (!idleWatching) return;
+            const window_ = autoLockMs();
+            if (!window_) return;
+            idleDeadline = Date.now() + window_;
+            hideIdleWarning();
+        };
+
+        function startIdleWatch() {
+            stopIdleWatch();
+            if (!autoLockMs()) return;   // auto-lock disabled
+            idleWatching = true;
+            idleDeadline = Date.now() + autoLockMs();
+            IDLE_EVENTS.forEach(evt => document.addEventListener(evt, resetIdleTimer, { passive: true }));
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+            // Timers in a backgrounded tab are throttled, so the deadline is
+            // re-checked against the wall clock rather than counted down.
+            idleTicker = setInterval(idleTick, 1000);
+        }
+
+        function stopIdleWatch() {
+            idleWatching = false;
+            if (idleTicker) clearInterval(idleTicker);
+            idleTicker = null;
+            IDLE_EVENTS.forEach(evt => document.removeEventListener(evt, resetIdleTimer));
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            hideIdleWarning();
+        }
+
+        function handleVisibilityChange() {
+            if (document.visibilityState === 'visible') idleTick();
+        }
+
+        window.stayUnlocked = function() {
+            resetIdleTimer();
+            hideIdleWarning();
+        };
+
+        // --- Settings ---
+        window.openSettings = function() {
+            const s = getSettings();
+            const kdf = getKdfParams();
+            const options = [
+                { value: 1, label: '1 minute' },
+                { value: 5, label: '5 minutes' },
+                { value: 15, label: '15 minutes' },
+                { value: 30, label: '30 minutes' },
+                { value: 0, label: 'Never (not recommended)' }
+            ];
+            openModal({
+                title: 'settings',
+                icon: 'settings',
+                body: `
+                <div class="flex flex-col gap-md">
+                    <div>
+                        <label for="set-autolock" class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Auto-lock after inactivity</label>
+                        <select id="set-autolock" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none">
+                            ${options.map(o => `<option value="${o.value}" ${s.autoLockMinutes === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+                        </select>
+                        <div class="text-sans-label font-sans-label text-on-surface-variant/70 mt-xs">You get a ${IDLE_WARNING_SECONDS}-second warning before the vault locks itself.</div>
+                    </div>
+                    <div>
+                        <label for="set-rotation" class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Default rotation period for new entries</label>
+                        <select id="set-rotation" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none">
+                            ${ROTATION_OPTIONS.map(o => `<option value="${o.value}" ${s.rotationDefaultDays === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="border-t border-grid pt-md text-sans-label font-sans-label text-on-surface-variant/70 flex flex-col gap-[3px]">
+                        <div>Cipher: AES-GCM 256</div>
+                        <div>Key derivation: PBKDF2-${kdf.hash}, ${kdf.iterations.toLocaleString()} iterations</div>
+                        <div>Entries stored: ${entries.length}</div>
+                    </div>
+                </div>`,
+                onOpen: () => {
+                    document.getElementById('set-autolock').addEventListener('change', e => {
+                        saveSettings({ autoLockMinutes: parseInt(e.target.value, 10) });
+                        startIdleWatch();
+                        showToast(parseInt(e.target.value, 10) > 0 ? 'Auto-lock updated.' : 'Auto-lock disabled.');
+                    });
+                    document.getElementById('set-rotation').addEventListener('change', e => {
+                        saveSettings({ rotationDefaultDays: parseInt(e.target.value, 10) });
+                        showToast('Default rotation period updated.');
+                    });
+                }
+            });
+        };
+
+        // --- Rotation / staleness ---
+        const DAY_MS = 86400000;
+        const ROTATION_OPTIONS = [
+            { value: 0, label: 'No reminder' },
+            { value: 30, label: 'Every 30 days' },
+            { value: 60, label: 'Every 60 days' },
+            { value: 90, label: 'Every 90 days' },
+            { value: 180, label: 'Every 180 days' },
+            { value: 365, label: 'Every year' }
+        ];
+
+        function rotationBaseline(item) {
+            return item.rotatedAt || item.createdAt || Date.now();
+        }
+
+        // 'overdue' once the period has elapsed, 'due-soon' inside the last 20%
+        // of it (capped at a week so yearly policies do not nag for 2 months).
+        function rotationStatus(item) {
+            const days = Number(item.rotateDays) || 0;
+            if (!days) return null;
+
+            const elapsed = Date.now() - rotationBaseline(item);
+            const period = days * DAY_MS;
+            const remainingDays = Math.ceil((period - elapsed) / DAY_MS);
+
+            if (elapsed >= period) {
+                return { state: 'overdue', days: remainingDays, label: `overdue by ${Math.abs(remainingDays)}d`, color: 'text-error border-error/60' };
+            }
+            const soonWindow = Math.min(period * 0.2, 7 * DAY_MS);
+            if (period - elapsed <= soonWindow) {
+                return { state: 'due-soon', days: remainingDays, label: `rotate in ${remainingDays}d`, color: 'text-tertiary border-tertiary/60' };
+            }
+            return { state: 'ok', days: remainingDays, label: `rotate in ${remainingDays}d`, color: 'text-on-surface-variant border-grid' };
+        }
+
+        function needsRotation(item) {
+            const status = rotationStatus(item);
+            return !!status && (status.state === 'overdue' || status.state === 'due-soon');
+        }
+
+        function rotationBadge(item, compact) {
+            const status = rotationStatus(item);
+            if (!status) return '';
+            if (compact && status.state === 'ok') return '';
+            const icon = status.state === 'overdue' ? 'error' : (status.state === 'due-soon' ? 'schedule' : 'event_repeat');
+            return `<span class="px-xs py-[2px] bg-[#21262d] border rounded text-sans-label font-sans-label inline-flex items-center gap-[3px] ${status.color}" title="Rotation policy: every ${item.rotateDays} days">
+                <span class="material-symbols-outlined text-[12px] leading-none">${icon}</span>${status.label}
+            </span>`;
+        }
+
+        window.markRotated = async function(id, event) {
+            if (event) event.stopPropagation();
+            const item = entries.find(e => e.id === id);
+            if (!item) return;
+            item.rotatedAt = Date.now();
+            await saveEntries();
+            renderApp();
+            showToast(`Marked "${item.name}" as rotated.`);
+        };
+
+        // --- Encrypted backup export / import ---
+        // The backup carries its own salt and iteration count, so it can be
+        // restored on a machine that has none of this vault's localStorage.
+        function passphraseFieldsMarkup(prefix, opts) {
+            const o = opts || {};
+            return `
+            <div>
+                <label for="${prefix}-pass" class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">${o.label || 'Backup passphrase'}</label>
+                <div class="relative">
+                    <input id="${prefix}-pass" type="password" ${o.autocomplete || 'autocomplete="new-password"'} placeholder="${o.placeholder || 'Passphrase for this file...'}" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded pl-sm pr-[72px] py-xs focus:border-primary focus:outline-none" />
+                    <div class="absolute inset-y-0 right-0 flex items-center">
+                        ${o.generator ? `
+                        <button type="button" onclick="openGenerator('${prefix}-pass')" aria-label="Generate passphrase" title="Generate a passphrase" class="w-[36px] h-full flex items-center justify-center text-on-surface-variant hover:text-primary focus:text-primary focus:outline-none transition-colors">
+                            <span class="material-symbols-outlined text-[18px]">casino</span>
+                        </button>` : ''}
+                        <button type="button" onclick="togglePasswordVisibility('${prefix}-pass', this)" aria-label="Show passphrase" aria-pressed="false" title="Show passphrase (hides again after ${PW_REVEAL_MS / 1000}s)" class="w-[36px] h-full flex items-center justify-center text-on-surface-variant hover:text-primary focus:text-primary focus:outline-none transition-colors">
+                            <span class="material-symbols-outlined text-[18px]">visibility</span>
+                        </button>
+                    </div>
+                </div>
+                ${o.meter ? strengthMeterMarkup(prefix + '-strength') : ''}
+            </div>`;
+        }
+
+        window.openExportModal = function() {
+            if (!entries || entries.length === 0) {
+                showToast('No entries to export.');
+                return;
+            }
+            openModal({
+                title: 'export backup',
+                icon: 'download',
+                body: `
+                <div class="text-mono-ui-sm text-on-surface-variant leading-relaxed">
+                    ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} will be encrypted with a passphrase of your choosing. The file carries its own salt, so you can restore it on any machine.
+                </div>
+                <form onsubmit="handleExportSubmit(event)" class="flex flex-col gap-md">
+                    ${passphraseFieldsMarkup('exp', { generator: true, meter: true })}
+                    ${passphraseFieldsMarkup('exp-confirm', { label: 'Confirm passphrase', placeholder: 'Repeat it...' })}
+                    <label class="flex items-start gap-xs text-mono-ui-sm cursor-pointer select-none">
+                        <input id="exp-plaintext" type="checkbox" class="w-4 h-4 mt-[2px] rounded bg-[#0d1117] border-grid text-error focus:ring-0 focus:ring-offset-0" onchange="togglePlaintextExport(this.checked)" />
+                        <span class="text-on-surface-variant">Export unencrypted instead <span class="text-error">(every key in cleartext on disk)</span></span>
+                    </label>
+                    <div id="exp-error" class="text-error text-mono-ui-sm hidden"></div>
+                    <div class="flex justify-end gap-sm">
+                        <button type="button" onclick="closeModal()" class="btn-action px-md py-xs rounded text-mono-ui-sm min-h-[36px] flex items-center">Cancel</button>
+                        <button id="exp-submit" type="submit" class="btn-action px-md py-xs rounded text-mono-ui-sm text-primary border-primary/50 hover:border-primary min-h-[36px] flex items-center gap-xs">
+                            <span class="material-symbols-outlined text-[16px]">download</span>
+                            <span class="btn-label">Encrypt &amp; download</span>
+                        </button>
+                    </div>
+                </form>`,
+                onOpen: () => {
+                    wireStrengthMeter('exp-pass', 'exp-strength');
+                    document.getElementById('exp-pass').focus();
+                }
+            });
+        };
+
+        window.togglePlaintextExport = function(plaintext) {
+            ['exp-pass', 'exp-confirm-pass'].forEach(id => {
+                const input = document.getElementById(id);
+                if (!input) return;
+                input.disabled = plaintext;
+                input.closest('div').parentElement.classList.toggle('opacity-40', plaintext);
+            });
+            const label = document.querySelector('#exp-submit .btn-label');
+            if (label) label.textContent = plaintext ? 'Download cleartext' : 'Encrypt & download';
+        };
+
+        function downloadJSON(obj, suffix) {
+            const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `vault_backup_${new Date().toISOString().split('T')[0]}${suffix}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        window.handleExportSubmit = async function(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('exp-error');
+            const plaintext = document.getElementById('exp-plaintext').checked;
+
+            if (plaintext) {
+                downloadJSON({ app: 'Vault', version: EXPORT_FORMAT_VERSION, encrypted: false, exportedAt: new Date().toISOString(), entries }, '_CLEARTEXT');
+                closeModal();
+                showToast('Exported in cleartext — store it somewhere safe.');
+                return;
+            }
+
+            const pass = document.getElementById('exp-pass').value;
+            const confirm = document.getElementById('exp-confirm-pass').value;
+
+            if (pass.length < MIN_MASTER_PASSWORD_LENGTH) {
+                errorEl.textContent = `Passphrase must be at least ${MIN_MASTER_PASSWORD_LENGTH} characters long.`;
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            if (pass !== confirm) {
+                errorEl.textContent = 'Passphrases do not match.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            errorEl.classList.add('hidden');
+            setAuthFormBusy('exp-submit', true, 'Encrypting...');
+            await nextPaint();
+
+            try {
+                const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+                const key = await deriveMasterKey(pass, saltBytes, PBKDF2_ITERATIONS, 'SHA-256');
+                const payload = await encryptText(JSON.stringify(entries), key);
+                downloadJSON({
+                    app: 'Vault',
+                    version: EXPORT_FORMAT_VERSION,
+                    encrypted: true,
+                    exportedAt: new Date().toISOString(),
+                    entryCount: entries.length,
+                    kdf: { name: 'PBKDF2', hash: 'SHA-256', iterations: PBKDF2_ITERATIONS, salt: bufferToBase64(saltBytes) },
+                    cipher: { name: 'AES-GCM', iv: payload.iv, ciphertext: payload.ciphertext }
+                }, '');
+                closeModal();
+                showToast(`Exported ${entries.length} encrypted entr${entries.length === 1 ? 'y' : 'ies'}.`);
+            } catch (err) {
+                console.error('Export failed:', err);
+                setAuthFormBusy('exp-submit', false);
+                errorEl.textContent = 'Failed to encrypt the backup.';
+                errorEl.classList.remove('hidden');
+            }
+        };
+
+        function mergeImportedEntries(importedEntries) {
+            const existingIds = new Set(entries.map(item => item.id));
+            let addedCount = 0;
+
+            importedEntries.slice().reverse().forEach(item => {
+                if (!item || !item.name || !item.type || !item.value) return;
+                let id = item.id || ('entry-' + Date.now());
+                if (existingIds.has(id)) {
+                    id = 'entry-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+                }
+                entries.unshift({
+                    id,
+                    name: item.name,
+                    type: item.type,
+                    value: item.value,
+                    createdAt: item.createdAt || Date.now(),
+                    lastUsedAt: item.lastUsedAt || null,
+                    rotateDays: Number(item.rotateDays) || 0,
+                    rotatedAt: item.rotatedAt || null
+                });
+                existingIds.add(id);
+                addedCount++;
+            });
+            return addedCount;
+        }
+
+        async function finishImport(importedEntries) {
+            if (!Array.isArray(importedEntries) || importedEntries.length === 0) {
+                showToast('Backup contains no entries.');
+                return;
+            }
+            const added = mergeImportedEntries(importedEntries);
+            await saveEntries();
+            renderApp();
+            showToast(`Imported ${added} entr${added === 1 ? 'y' : 'ies'}.`);
+        }
+
+        function openImportPassphraseModal(payload) {
+            openModal({
+                title: 'import backup',
+                icon: 'upload',
+                body: `
+                <div class="text-mono-ui-sm text-on-surface-variant leading-relaxed">
+                    This backup is encrypted${payload.entryCount ? ` and holds ${payload.entryCount} entr${payload.entryCount === 1 ? 'y' : 'ies'}` : ''}. Enter the passphrase it was exported with.
+                </div>
+                <form onsubmit="handleImportDecrypt(event)" class="flex flex-col gap-md">
+                    ${passphraseFieldsMarkup('imp', { label: 'Backup passphrase', placeholder: 'Passphrase for this file...', autocomplete: 'autocomplete="current-password"' })}
+                    <div id="imp-error" class="text-error text-mono-ui-sm hidden"></div>
+                    <div class="flex justify-end gap-sm">
+                        <button type="button" onclick="closeModal()" class="btn-action px-md py-xs rounded text-mono-ui-sm min-h-[36px] flex items-center">Cancel</button>
+                        <button id="imp-submit" type="submit" class="btn-action px-md py-xs rounded text-mono-ui-sm text-primary border-primary/50 hover:border-primary min-h-[36px] flex items-center gap-xs">
+                            <span class="material-symbols-outlined text-[16px]">lock_open</span>
+                            <span class="btn-label">Decrypt &amp; import</span>
+                        </button>
+                    </div>
+                </form>`,
+                onClose: () => { pendingImportPayload = null; },
+                onOpen: () => document.getElementById('imp-pass').focus()
+            });
+        }
+
+        let pendingImportPayload = null;
+
+        window.handleImportDecrypt = async function(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('imp-error');
+            const pass = document.getElementById('imp-pass').value;
+            const payload = pendingImportPayload;
+            if (!payload) return;
+
+            errorEl.classList.add('hidden');
+            setAuthFormBusy('imp-submit', true, 'Decrypting...');
+            await nextPaint();
+
+            try {
+                const saltBytes = new Uint8Array(base64ToBuffer(payload.kdf.salt));
+                const key = await deriveMasterKey(pass, saltBytes, payload.kdf.iterations, payload.kdf.hash || 'SHA-256');
+                const jsonStr = await decryptText(payload.cipher.ciphertext, payload.cipher.iv, key);
+                pendingImportPayload = null;
+                closeModal();
+                await finishImport(JSON.parse(jsonStr));
+            } catch (err) {
+                console.error('Backup decryption failed:', err);
+                setAuthFormBusy('imp-submit', false);
+                errorEl.textContent = 'Wrong passphrase, or the file is damaged.';
+                errorEl.classList.remove('hidden');
+            }
+        };
+
+        // --- Command palette ---
+        let paletteItems = [];
+        let paletteIndex = 0;
+
+        function isPaletteOpen() {
+            const root = document.getElementById('palette-root');
+            return !!root && !root.classList.contains('hidden');
+        }
+
+        // Subsequence match, scored so that tighter and earlier hits rank first.
+        function fuzzyScore(haystack, needle) {
+            if (!needle) return 0;
+            const h = haystack.toLowerCase();
+            const n = needle.toLowerCase();
+            let score = 0, hi = 0, streak = 0;
+            for (let ni = 0; ni < n.length; ni++) {
+                const found = h.indexOf(n[ni], hi);
+                if (found === -1) return -1;
+                streak = found === hi && ni > 0 ? streak + 1 : 0;
+                score += streak * 4;
+                if (found === 0 || /[^a-z0-9]/.test(h[found - 1])) score += 6;   // start of a word
+                score -= Math.min(found - hi, 8);
+                hi = found + 1;
+            }
+            return score - h.length * 0.05;
+        }
+
+        function paletteActions() {
+            return [
+                { icon: 'add', label: 'New entry', hint: 'n', run: () => toggleCreating(true) },
+                { icon: 'casino', label: 'Generate password', hint: 'g', run: () => openGenerator(null) },
+                { icon: 'download', label: 'Export encrypted backup', run: () => openExportModal() },
+                { icon: 'upload', label: 'Import backup', run: () => triggerImportJSON() },
+                { icon: 'settings', label: 'Settings', hint: ',', run: () => openSettings() },
+                { icon: 'keyboard', label: 'Keyboard shortcuts', hint: '?', run: () => openShortcutsHelp() },
+                { icon: 'folder', label: 'Filter: all entries', run: () => selectCategory('all') },
+                { icon: 'key', label: 'Filter: api-keys', run: () => selectCategory('api-key') },
+                { icon: 'description', label: 'Filter: prompts', run: () => selectCategory('prompt') },
+                { icon: 'event_repeat', label: 'Filter: needs rotation', run: () => selectCategory('stale') },
+                { icon: 'lock', label: 'Lock vault', hint: 'ctrl+L', run: () => lockVault() }
+            ];
+        }
+
+        function buildPaletteItems(query) {
+            const actions = paletteActions().map(a => ({
+                kind: 'action', icon: a.icon, title: a.label, subtitle: 'Command', hint: a.hint || '', run: a.run,
+                score: fuzzyScore(a.label, query)
+            }));
+            const items = entries.map(item => {
+                const status = rotationStatus(item);
+                return {
+                    kind: 'entry', icon: item.type === 'api-key' ? 'key' : 'description',
+                    title: item.name,
+                    subtitle: `${item.type === 'api-key' ? 'API Key' : 'Prompt'} · ${formatTimeAgo(item.lastUsedAt)}${status && status.state === 'overdue' ? ' · rotation overdue' : ''}`,
+                    hint: '', id: item.id,
+                    score: fuzzyScore(item.name, query)
+                };
+            });
+            return actions.concat(items)
+                .filter(i => i.score >= 0)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 40);
+        }
+
+        function renderPaletteList() {
+            const list = document.getElementById('palette-list');
+            if (!list) return;
+            if (paletteItems.length === 0) {
+                list.innerHTML = '<div class="px-md py-md text-mono-ui-sm text-on-surface-variant">No matches.</div>';
+                return;
+            }
+            list.innerHTML = paletteItems.map((item, i) => `
+                <button type="button" data-palette-index="${i}" class="w-full flex items-center gap-sm px-md py-xs text-left border-l-2 ${i === paletteIndex ? 'border-primary bg-[#1c2430]' : 'border-transparent hover:bg-[#161b22]'}">
+                    <span class="material-symbols-outlined text-[18px] ${i === paletteIndex ? 'text-primary' : 'text-on-surface-variant'} shrink-0">${item.icon}</span>
+                    <span class="flex-1 min-w-0">
+                        <span class="block text-mono-ui-sm font-mono-ui-sm ${i === paletteIndex ? 'text-primary' : 'text-on-surface'} truncate">${escapeHtml(item.title)}</span>
+                        <span class="block text-sans-label font-sans-label text-on-surface-variant/70 truncate">${escapeHtml(item.subtitle)}</span>
+                    </span>
+                    ${item.hint ? `<kbd class="shrink-0 px-xs py-[1px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-on-surface-variant">${escapeHtml(item.hint)}</kbd>` : ''}
+                </button>`).join('');
+
+            const active = list.querySelector(`[data-palette-index="${paletteIndex}"]`);
+            if (active) active.scrollIntoView({ block: 'nearest' });
+        }
+
+        function refreshPalette(query) {
+            paletteItems = buildPaletteItems(query);
+            paletteIndex = 0;
+            renderPaletteList();
+        }
+
+        window.openPalette = function() {
+            if (isLocked) return;
+            closeModal();
+            const root = document.getElementById('palette-root');
+            root.innerHTML = `
+            <div class="absolute inset-0 bg-black/70" onclick="closePalette()"></div>
+            <div role="dialog" aria-modal="true" aria-label="Command palette" class="relative w-full max-w-xl bg-[#161b22] border border-grid rounded shadow-2xl overflow-hidden flex flex-col max-h-[70vh]">
+                <div class="flex items-center gap-xs px-md py-sm border-b border-grid">
+                    <span class="text-primary font-bold text-mono-ui-md">&gt;</span>
+                    <input id="palette-input" type="text" autocomplete="off" spellcheck="false" placeholder="Run a command or jump to an entry..." class="flex-1 bg-transparent border-none outline-none text-on-surface text-mono-ui-md font-mono-ui-md focus:ring-0 p-0 placeholder:text-on-surface-variant/40" />
+                </div>
+                <div id="palette-list" class="overflow-y-auto py-xs"></div>
+                <div class="flex items-center gap-md px-md py-xs border-t border-grid text-sans-label font-sans-label text-on-surface-variant/70">
+                    <span>&uarr;&darr; navigate</span><span>&crarr; copy / run</span><span>&#8679;&crarr; open entry</span><span>esc close</span>
+                </div>
+            </div>`;
+            root.classList.remove('hidden');
+
+            const input = document.getElementById('palette-input');
+            input.addEventListener('input', e => refreshPalette(e.target.value));
+            input.addEventListener('keydown', handlePaletteKeydown);
+            document.getElementById('palette-list').addEventListener('click', e => {
+                const btn = e.target.closest('[data-palette-index]');
+                if (!btn) return;
+                paletteIndex = parseInt(btn.dataset.paletteIndex, 10);
+                runPaletteSelection(false);
+            });
+            refreshPalette('');
+            input.focus();
+        };
+
+        window.closePalette = function() {
+            const root = document.getElementById('palette-root');
+            if (!root || root.classList.contains('hidden')) return;
+            root.classList.add('hidden');
+            root.innerHTML = '';
+            paletteItems = [];
+        };
+
+        function handlePaletteKeydown(e) {
+            if (e.key === 'ArrowDown' || (e.key === 'n' && e.ctrlKey)) {
+                e.preventDefault();
+                paletteIndex = Math.min(paletteIndex + 1, paletteItems.length - 1);
+                renderPaletteList();
+            } else if (e.key === 'ArrowUp' || (e.key === 'p' && e.ctrlKey)) {
+                e.preventDefault();
+                paletteIndex = Math.max(paletteIndex - 1, 0);
+                renderPaletteList();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                runPaletteSelection(e.shiftKey);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                closePalette();
+            }
+        }
+
+        function runPaletteSelection(openInstead) {
+            const item = paletteItems[paletteIndex];
+            if (!item) return;
+            closePalette();
+            if (item.kind === 'action') {
+                item.run();
+            } else if (openInstead) {
+                expandedId = item.id;
+                activeCategory = 'all';
+                searchQuery = '';
+                const search = document.getElementById('search-input');
+                if (search) search.value = '';
+                renderApp();
+            } else {
+                copyToClipboard(item.id);
+            }
+        }
+
+        // --- Keyboard shortcuts ---
+        const SHORTCUTS = [
+            { keys: ['ctrl', 'K'], label: 'Open the command palette' },
+            { keys: ['/'], label: 'Jump to search' },
+            { keys: ['N'], label: 'New entry' },
+            { keys: ['G'], label: 'Generate a password' },
+            { keys: ['ctrl', 'L'], label: 'Lock the vault' },
+            { keys: [','], label: 'Open settings' },
+            { keys: ['?'], label: 'Show this list' },
+            { keys: ['esc'], label: 'Close, cancel, or clear search' }
+        ];
+
+        window.openShortcutsHelp = function() {
+            openModal({
+                title: 'keyboard shortcuts',
+                icon: 'keyboard',
+                body: `
+                <div class="flex flex-col divide-y divide-[#30363d]">
+                    ${SHORTCUTS.map(s => `
+                    <div class="flex items-center justify-between gap-md py-xs">
+                        <span class="text-mono-ui-sm text-on-surface-variant">${s.label}</span>
+                        <span class="flex items-center gap-[3px] shrink-0">
+                            ${s.keys.map(k => `<kbd class="px-xs py-[1px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-primary">${k}</kbd>`).join('<span class="text-on-surface-variant/50">+</span>')}
+                        </span>
+                    </div>`).join('')}
+                </div>
+                <div class="text-sans-label font-sans-label text-on-surface-variant/70">Single-letter shortcuts are ignored while you are typing in a field.</div>`
+            });
+        };
+
+        function isTypingTarget(el) {
+            if (!el) return false;
+            const tag = el.tagName;
+            return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+        }
+
+        function handleGlobalKeydown(e) {
+            if (!e.key || e.isComposing) return;
+            const mod = e.metaKey || e.ctrlKey;
+
+            if (mod && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                isPaletteOpen() ? closePalette() : openPalette();
+                return;
+            }
+            if (mod && e.key.toLowerCase() === 'l' && !isLocked) {
+                e.preventDefault();
+                lockVault();
+                return;
+            }
+            if (isPaletteOpen()) return;   // the palette input owns its own keys
+
+            if (e.key === 'Escape') {
+                if (isModalOpen()) { closeModal(); return; }
+                if (isLocked) return;
+                if (editingId) { cancelEdit(); return; }
+                if (isCreating) { toggleCreating(false); return; }
+                if (expandedId) { expandedId = null; renderApp(); return; }
+                if (searchQuery) {
+                    searchQuery = '';
+                    const search = document.getElementById('search-input');
+                    if (search) { search.value = ''; search.blur(); }
+                    renderApp();
+                    return;
+                }
+                if (isTypingTarget(document.activeElement)) document.activeElement.blur();
+                return;
+            }
+
+            if (mod || e.altKey || isTypingTarget(e.target) || isLocked || isModalOpen()) return;
+
+            if (e.key === '/') {
+                e.preventDefault();
+                const search = document.getElementById('search-input');
+                if (search) { search.focus(); search.select(); }
+            } else if (e.key === 'n') {
+                e.preventDefault();
+                toggleCreating(true);
+            } else if (e.key === 'g') {
+                e.preventDefault();
+                openGenerator(null);
+            } else if (e.key === ',') {
+                e.preventDefault();
+                openSettings();
+            } else if (e.key === '?') {
+                e.preventDefault();
+                openShortcutsHelp();
+            }
+        }
 
         // Render Authentication Screens
         function renderAuthScreens() {
+            clearPwRevealTimers();
             const authContainer = document.getElementById('auth-container');
             const appWorkspace = document.getElementById('app-workspace');
             const searchContainer = document.getElementById('search-container');
-            const btnLock = document.getElementById('btn-lock');
-            const btnNew = document.getElementById('btn-new-entry');
+            const chromeButtons = ['btn-lock', 'btn-new-entry', 'btn-settings', 'btn-help'];
 
             appWorkspace.classList.add('hidden');
             searchContainer.classList.add('hidden');
-            btnLock.classList.add('hidden');
-            btnNew.classList.add('hidden');
+            chromeButtons.forEach(id => document.getElementById(id).classList.add('hidden'));
             authContainer.classList.remove('hidden');
 
             if (!isInitialized) {
@@ -522,25 +1782,21 @@
                         <span>initialize vault</span>
                     </div>
                     <div class="text-mono-ui-sm text-on-surface-variant leading-relaxed">
-                        Set a master password to encrypt your API keys and prompts. Your password is never saved to disk and is required to unlock your vault.
+                        Set a master password to encrypt your API keys and prompts. Your password is never saved to disk and is required to unlock your vault &mdash; there is no reset, so pick something you will not lose.
                     </div>
                     <form onsubmit="handleInitVault(event)" class="flex flex-col gap-md">
-                        <div>
-                            <label class="block text-sans-label text-on-surface-variant uppercase mb-xs">Master Password</label>
-                            <input id="init-password" type="password" required placeholder="Choose a password..." class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none" />
-                        </div>
-                        <div>
-                            <label class="block text-sans-label text-on-surface-variant uppercase mb-xs">Confirm Password</label>
-                            <input id="init-password-confirm" type="password" required placeholder="Confirm password..." class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none" />
-                        </div>
+${passwordField('init-password', 'Master Password', 'Choose a password...', 'autocomplete="new-password"', { generator: true, meter: true })}
+${passwordField('init-password-confirm', 'Confirm Password', 'Confirm password...', 'autocomplete="new-password"')}
                         <div id="init-error" class="text-error text-mono-ui-sm hidden"></div>
-                        <button type="submit" class="btn-action py-xs px-md rounded text-primary border-primary/50 hover:border-primary font-mono-ui-sm min-h-[44px] flex items-center justify-center gap-xs">
+                        <button id="init-submit" type="submit" class="btn-action py-xs px-md rounded text-primary border-primary/50 hover:border-primary font-mono-ui-sm min-h-[44px] flex items-center justify-center gap-xs">
                             <span class="material-symbols-outlined text-[18px]">lock</span>
-                            <span>Encrypt & Initialize Vault</span>
+                            <span class="btn-label">Encrypt & Initialize Vault</span>
                         </button>
                     </form>
                 </div>
                 `;
+                initWeakAccepted = false;
+                wireStrengthMeter('init-password', 'init-password-strength');
             } else {
                 // Lock Screen
                 authContainer.innerHTML = `
@@ -553,14 +1809,11 @@
                         Enter your master password to decrypt and access your entries.
                     </div>
                     <form onsubmit="handleUnlockVault(event)" class="flex flex-col gap-md">
-                        <div>
-                            <label class="block text-sans-label text-on-surface-variant uppercase mb-xs">Master Password</label>
-                            <input id="unlock-password" type="password" required autofocus placeholder="Enter master password..." class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none" />
-                        </div>
+${passwordField('unlock-password', 'Master Password', 'Enter master password...', 'autofocus autocomplete="current-password"')}
                         <div id="unlock-error" class="text-error text-mono-ui-sm hidden"></div>
-                        <button type="submit" class="btn-action py-xs px-md rounded text-primary border-primary/50 hover:border-primary font-mono-ui-sm min-h-[44px] flex items-center justify-center gap-xs">
+                        <button id="unlock-submit" type="submit" class="btn-action py-xs px-md rounded text-primary border-primary/50 hover:border-primary font-mono-ui-sm min-h-[44px] flex items-center justify-center gap-xs">
                             <span class="material-symbols-outlined text-[18px]">key</span>
-                            <span>Unlock Vault</span>
+                            <span class="btn-label">Unlock Vault</span>
                         </button>
                     </form>
                 </div>
@@ -616,34 +1869,9 @@
             }, 1500);
         }
 
-        // Export entries to JSON file
+        // Export entries to JSON file (encrypted; see openExportModal)
         window.exportVaultJSON = function() {
-            if (!entries || entries.length === 0) {
-                showToast('No entries to export.');
-                return;
-            }
-
-            const exportObj = {
-                app: 'Vault',
-                version: 1,
-                exportedAt: new Date().toISOString(),
-                entries: entries
-            };
-
-            const jsonStr = JSON.stringify(exportObj, null, 2);
-            const blob = new Blob([jsonStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            
-            const dateStr = new Date().toISOString().split('T')[0];
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `vault_backup_${dateStr}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-
-            showToast('Vault exported to JSON!');
+            openExportModal();
         };
 
         // Trigger file picker for import
@@ -652,7 +1880,7 @@
             if (input) input.click();
         };
 
-        // Import entries from JSON file
+        // Import entries from JSON file (encrypted v2 backups and legacy plaintext)
         window.importVaultJSON = function(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -661,52 +1889,30 @@
             reader.onload = async function(e) {
                 try {
                     const content = JSON.parse(e.target.result);
-                    let importedEntries = [];
 
-                    if (Array.isArray(content)) {
-                        importedEntries = content;
-                    } else if (content && Array.isArray(content.entries)) {
-                        importedEntries = content.entries;
-                    } else {
+                    if (content && content.encrypted && content.kdf && content.cipher) {
+                        pendingImportPayload = content;
+                        openImportPassphraseModal(content);
+                        return;
+                    }
+
+                    let importedEntries = null;
+                    if (Array.isArray(content)) importedEntries = content;
+                    else if (content && Array.isArray(content.entries)) importedEntries = content.entries;
+
+                    if (!importedEntries) {
                         showToast('Invalid Vault JSON format.');
                         return;
                     }
 
-                    if (importedEntries.length === 0) {
-                        showToast('JSON file contains no entries.');
-                        return;
-                    }
-
-                    const existingIds = new Set(entries.map(item => item.id));
-                    let addedCount = 0;
-
-                    importedEntries.reverse().forEach(item => {
-                        if (item.name && item.type && item.value) {
-                            if (existingIds.has(item.id)) {
-                                item.id = 'entry-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
-                            }
-                            entries.unshift({
-                                id: item.id || ('entry-' + Date.now()),
-                                name: item.name,
-                                type: item.type,
-                                value: item.value,
-                                createdAt: item.createdAt || Date.now(),
-                                lastUsedAt: item.lastUsedAt || null
-                            });
-                            existingIds.add(item.id);
-                            addedCount++;
-                        }
-                    });
-
-                    await saveEntries();
-                    renderApp();
-                    showToast(`Imported ${addedCount} entry(ies) successfully!`);
+                    await finishImport(importedEntries);
+                    showToast('That backup was unencrypted — consider re-exporting it.');
                 } catch (err) {
                     console.error('Import error:', err);
                     showToast('Failed to parse JSON file.');
                 }
-                event.target.value = '';
             };
+            reader.onloadend = function() { event.target.value = ''; };
             reader.readAsText(file);
         };
 
@@ -756,15 +1962,21 @@
             const name = document.getElementById(`edit-name-${id}`).value.trim();
             const type = document.getElementById(`edit-type-${id}`).value;
             const value = document.getElementById(`edit-value-${id}`).value;
+            const rotateDays = parseInt(document.getElementById(`edit-rotate-${id}`).value, 10) || 0;
 
             if (!name || !value) return;
 
             const index = entries.findIndex(item => item.id === id);
             if (index !== -1) {
+                const valueChanged = entries[index].value !== value;
                 entries[index].name = name;
                 entries[index].type = type;
                 entries[index].value = value;
+                entries[index].rotateDays = rotateDays;
+                // Replacing the secret is the rotation, so restart the clock.
+                if (valueChanged || !entries[index].rotatedAt) entries[index].rotatedAt = Date.now();
                 await saveEntries();
+                if (valueChanged && rotateDays) showToast('Rotation clock reset.');
             }
 
             editingId = null;
@@ -788,26 +2000,35 @@
 
         function getFilteredEntries() {
             return entries.filter(item => {
-                const matchesCat = activeCategory === 'all' || item.type === activeCategory;
+                const matchesCat = activeCategory === 'all'
+                    ? true
+                    : (activeCategory === 'stale' ? needsRotation(item) : item.type === activeCategory);
                 const matchesSearch = !searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase());
                 return matchesCat && matchesSearch;
             });
+        }
+
+        function staleCount() {
+            return entries.filter(needsRotation).length;
         }
 
         function renderNav() {
             const sidebar = document.getElementById('sidebar-nav');
             const mobile = document.getElementById('mobile-nav');
 
+            const stale = staleCount();
             const categories = [
                 { id: 'all', label: 'all/', icon: 'folder' },
                 { id: 'api-key', label: 'api-keys/', icon: 'key' },
-                { id: 'prompt', label: 'prompts/', icon: 'description' }
+                { id: 'prompt', label: 'prompts/', icon: 'description' },
+                { id: 'stale', label: 'rotate/', icon: 'event_repeat', count: stale }
             ];
 
             sidebar.innerHTML = categories.map(cat => `
                 <a href="#" onclick="selectCategory('${cat.id}', event)" class="flex items-center w-full border-l-2 py-xs px-md group transition-colors duration-150 ${activeCategory === cat.id ? 'border-primary bg-[#161b22] text-primary font-mono-ui-md' : 'border-transparent text-on-surface-variant font-mono-ui-sm hover:bg-[#161b22]'}">
                     <span class="material-symbols-outlined text-[16px] mr-sm opacity-70 group-hover:opacity-100">${cat.icon}</span>
-                    <span class="truncate">${cat.label}</span>
+                    <span class="truncate flex-1">${cat.label}</span>
+                    ${cat.count ? `<span class="shrink-0 px-xs bg-error/20 text-error border border-error/40 rounded text-sans-label font-sans-label">${cat.count}</span>` : ''}
                 </a>
             `).join('');
 
@@ -816,22 +2037,24 @@
                     ${categories.map(cat => `
                         <button onclick="selectCategory('${cat.id}', event)" class="px-md py-xs rounded text-mono-ui-sm shrink-0 flex items-center gap-xs font-mono-ui-sm min-h-[44px] ${activeCategory === cat.id ? 'bg-[#161b22] text-primary border border-primary/40' : 'text-on-surface-variant hover:bg-[#161b22]'}" style="line-height: normal;">
                             <span class="material-symbols-outlined text-[16px]">${cat.icon}</span> ${cat.label}
+                            ${cat.count ? `<span class="px-xs bg-error/20 text-error border border-error/40 rounded text-sans-label font-sans-label">${cat.count}</span>` : ''}
                         </button>
                     `).join('')}
                 </div>
                 <div class="flex items-center gap-xs shrink-0 pl-xs border-l border-grid">
-                    <button onclick="exportVaultJSON()" class="btn-action px-sm py-xs rounded text-sans-label font-mono-ui-sm flex items-center justify-center gap-xs hover:text-primary transition-colors min-h-[44px]" title="Export backup JSON">
+                    <button onclick="exportVaultJSON()" class="btn-action px-sm py-xs rounded text-sans-label font-mono-ui-sm flex items-center justify-center gap-xs hover:text-primary transition-colors min-h-[44px]" title="Export an encrypted backup">
                         <span class="material-symbols-outlined text-[16px]">download</span>
                         <span>export</span>
                     </button>
-                    <button onclick="triggerImportJSON()" class="btn-action px-sm py-xs rounded text-sans-label font-mono-ui-sm flex items-center justify-center gap-xs hover:text-primary transition-colors min-h-[44px]" title="Import backup JSON">
+                    <button onclick="triggerImportJSON()" class="btn-action px-sm py-xs rounded text-sans-label font-mono-ui-sm flex items-center justify-center gap-xs hover:text-primary transition-colors min-h-[44px]" title="Import a backup">
                         <span class="material-symbols-outlined text-[16px]">upload</span>
                         <span>import</span>
                     </button>
                 </div>
             `;
 
-            const categoryText = activeCategory === 'all' ? 'all/' : (activeCategory === 'api-key' ? 'api-keys/' : 'prompts/');
+            const activeCat = categories.find(c => c.id === activeCategory);
+            const categoryText = activeCat ? activeCat.label : 'all/';
             document.getElementById('breadcrumb-category').textContent = categoryText;
         }
 
@@ -857,21 +2080,33 @@
                         </button>
                     </div>
                     <form id="create-entry-form" onsubmit="handleCreate(event)" class="flex flex-col gap-md">
-                        <div class="flex flex-col sm:flex-row gap-md">
-                            <div class="flex-1">
-                                <label class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Name</label>
+                        <div class="flex flex-col sm:flex-row flex-wrap gap-md">
+                            <div class="flex-1 min-w-[180px]">
+                                <label for="new-name" class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Name</label>
                                 <input id="new-name" type="text" required placeholder="e.g. openai_key.env" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none" />
                             </div>
-                            <div class="w-full sm:w-48">
-                                <label class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Type</label>
+                            <div class="w-full sm:w-40">
+                                <label for="new-type" class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Type</label>
                                 <select id="new-type" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none">
                                     <option value="api-key" ${activeCategory === 'api-key' ? 'selected' : ''}>API Key</option>
                                     <option value="prompt" ${activeCategory === 'prompt' ? 'selected' : ''}>Prompt</option>
                                 </select>
                             </div>
+                            <div class="w-full sm:w-48">
+                                <label for="new-rotate" class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Rotate</label>
+                                <select id="new-rotate" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none">
+                                    ${ROTATION_OPTIONS.map(o => `<option value="${o.value}" ${getSettings().rotationDefaultDays === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+                                </select>
+                            </div>
                         </div>
                         <div>
-                            <label class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Value / Content</label>
+                            <div class="flex items-center justify-between mb-xs">
+                                <label for="new-value" class="block text-sans-label font-sans-label text-on-surface-variant uppercase">Value / Content</label>
+                                <button type="button" onclick="openGenerator('new-value')" class="btn-action px-sm py-[2px] rounded text-sans-label font-sans-label flex items-center gap-xs hover:text-primary" title="Generate a random value">
+                                    <span class="material-symbols-outlined text-[14px]">casino</span>
+                                    <span>generate</span>
+                                </button>
+                            </div>
                             <textarea id="new-value" required rows="3" placeholder="Enter API key string or prompt template..." class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-code font-mono-code rounded p-sm focus:border-primary focus:outline-none resize-y"></textarea>
                         </div>
                         <div class="flex justify-end gap-sm">
@@ -888,7 +2123,11 @@
                 <div class="p-xl text-center flex flex-col items-center justify-center gap-sm my-lg flex-1">
                     <div class="text-mono-ui-lg text-primary font-bold">&gt; vault is empty</div>
                     <div class="text-mono-ui-sm text-on-surface-variant max-w-md">
-                        ${searchQuery ? `No entries matching "${escapeHtml(searchQuery)}". Try clearing your search.` : 'No entries found in this category. Click "+ new" above to store your first entry.'}
+                        ${searchQuery
+                            ? `No entries matching "${escapeHtml(searchQuery)}". Try clearing your search.`
+                            : (activeCategory === 'stale'
+                                ? 'Nothing is due for rotation. Set a rotation period on an entry to be reminded here.'
+                                : 'No entries found in this category. Click "+ new" above to store your first entry.')}
                     </div>
                 </div>
                 `;
@@ -911,21 +2150,33 @@
                             </button>
                         </div>
                         <form onsubmit="saveEdit(event, '${item.id}')" class="flex flex-col gap-md">
-                            <div class="flex flex-col sm:flex-row gap-md">
-                                <div class="flex-1">
-                                    <label class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Name</label>
+                            <div class="flex flex-col sm:flex-row flex-wrap gap-md">
+                                <div class="flex-1 min-w-[180px]">
+                                    <label for="edit-name-${item.id}" class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Name</label>
                                     <input id="edit-name-${item.id}" type="text" required value="${escapeHtml(item.name)}" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none" />
                                 </div>
-                                <div class="w-full sm:w-48">
-                                    <label class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Type</label>
+                                <div class="w-full sm:w-40">
+                                    <label for="edit-type-${item.id}" class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Type</label>
                                     <select id="edit-type-${item.id}" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none">
                                         <option value="api-key" ${item.type === 'api-key' ? 'selected' : ''}>API Key</option>
                                         <option value="prompt" ${item.type === 'prompt' ? 'selected' : ''}>Prompt</option>
                                     </select>
                                 </div>
+                                <div class="w-full sm:w-48">
+                                    <label for="edit-rotate-${item.id}" class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Rotate</label>
+                                    <select id="edit-rotate-${item.id}" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none">
+                                        ${ROTATION_OPTIONS.map(o => `<option value="${o.value}" ${(Number(item.rotateDays) || 0) === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+                                    </select>
+                                </div>
                             </div>
                             <div>
-                                <label class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Value / Content</label>
+                                <div class="flex items-center justify-between mb-xs">
+                                    <label for="edit-value-${item.id}" class="block text-sans-label font-sans-label text-on-surface-variant uppercase">Value / Content</label>
+                                    <button type="button" onclick="openGenerator('edit-value-${item.id}')" class="btn-action px-sm py-[2px] rounded text-sans-label font-sans-label flex items-center gap-xs hover:text-primary" title="Generate a random value">
+                                        <span class="material-symbols-outlined text-[14px]">casino</span>
+                                        <span>generate</span>
+                                    </button>
+                                </div>
                                 <textarea id="edit-value-${item.id}" required rows="4" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-code font-mono-code rounded p-sm focus:border-primary focus:outline-none resize-y">${escapeHtml(item.value)}</textarea>
                             </div>
                             <div class="flex justify-end gap-sm">
@@ -973,6 +2224,11 @@
                                         <span class="material-symbols-outlined text-[14px]">edit</span>
                                         <span>Edit</span>
                                     </button>
+                                    ${item.rotateDays ? `
+                                    <button onclick="markRotated('${item.id}', event)" class="btn-action min-h-[44px] sm:min-h-[28px] sm:h-6 px-sm rounded text-sans-label font-sans-label flex items-center gap-xs" title="Reset the rotation clock without changing the value">
+                                        <span class="material-symbols-outlined text-[14px]">event_available</span>
+                                        <span>Rotated</span>
+                                    </button>` : ''}
                                     <button onclick="confirmDelete('${item.id}', event)" class="btn-action min-h-[44px] sm:min-h-[28px] sm:h-6 px-sm rounded text-sans-label font-sans-label flex items-center gap-xs ${isDeleting ? 'text-error border-error' : 'hover:text-error'}">
                                         <span class="material-symbols-outlined text-[14px]">delete</span>
                                         <span>${isDeleting ? 'Confirm?' : 'Delete'}</span>
@@ -983,6 +2239,7 @@
                             <div class="flex flex-wrap gap-sm mt-sm">
                                 <span class="px-xs py-[2px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-on-surface-variant uppercase">${item.type === 'api-key' ? 'API Key' : 'Prompt'}</span>
                                 <span class="px-xs py-[2px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-on-surface-variant opacity-75">Created ${new Date(item.createdAt).toLocaleDateString()}</span>
+                                ${rotationBadge(item, false)}
                             </div>
                         </div>
                     </div>
@@ -994,8 +2251,9 @@
                             <div class="w-8 flex items-center justify-center shrink-0">
                                 <div class="w-1.5 h-1.5 rounded-full ${item.type === 'api-key' ? 'bg-primary' : 'bg-secondary'}"></div>
                             </div>
-                            <div class="flex-1 text-mono-ui-sm font-mono-ui-sm text-on-surface truncate pr-md">
-                                ${escapeHtml(item.name)}
+                            <div class="flex-1 flex items-center gap-sm min-w-0 pr-md">
+                                <span class="text-mono-ui-sm font-mono-ui-sm text-on-surface truncate">${escapeHtml(item.name)}</span>
+                                ${rotationBadge(item, true)}
                             </div>
                         </div>
                         <div class="flex items-center justify-between sm:justify-end gap-md pl-8 sm:pl-0">
@@ -1044,6 +2302,7 @@
             const name = document.getElementById('new-name').value.trim();
             const type = document.getElementById('new-type').value;
             const value = document.getElementById('new-value').value;
+            const rotateDays = parseInt(document.getElementById('new-rotate').value, 10) || 0;
 
             if (!name || !value) return;
 
@@ -1053,7 +2312,9 @@
                 type,
                 value,
                 createdAt: Date.now(),
-                lastUsedAt: null
+                lastUsedAt: null,
+                rotateDays,
+                rotatedAt: Date.now()
             };
 
             entries.unshift(newItem);
@@ -1069,17 +2330,19 @@
             const authContainer = document.getElementById('auth-container');
             const appWorkspace = document.getElementById('app-workspace');
             const searchContainer = document.getElementById('search-container');
-            const btnLock = document.getElementById('btn-lock');
-            const btnNew = document.getElementById('btn-new-entry');
+            const chromeButtons = ['btn-lock', 'btn-new-entry', 'btn-settings', 'btn-help'];
 
             if (!isInitialized || isLocked) {
                 renderAuthScreens();
             } else {
+                // Drop the auth markup so the typed master password (and any
+                // pending reveal timer) does not linger in the DOM once unlocked.
+                clearPwRevealTimers();
+                authContainer.innerHTML = '';
                 authContainer.classList.add('hidden');
                 appWorkspace.classList.remove('hidden');
                 searchContainer.classList.remove('hidden');
-                btnLock.classList.remove('hidden');
-                btnNew.classList.remove('hidden');
+                chromeButtons.forEach(id => document.getElementById(id).classList.remove('hidden'));
 
                 renderNav();
                 renderEntries();
@@ -1099,6 +2362,8 @@
                 searchQuery = e.target.value;
                 renderApp();
             });
+
+            document.addEventListener('keydown', handleGlobalKeydown);
         });
     </script>
 </body>
