@@ -194,6 +194,11 @@
         .pulse-warn {
             animation: vault-pulse 1.2s ease-in-out infinite;
         }
+
+        .file-drop-active {
+            box-shadow: inset 0 0 0 1px #d5bbff;
+            background-color: rgba(213, 187, 255, 0.05);
+        }
     </style>
 </head>
 
@@ -333,6 +338,14 @@
         let deleteConfirmId = null;
         let revealedState = {};
         let initWeakAccepted = false;   // second submit confirms a weak master password
+        let committedEntries = null;    // last array successfully written by saveEntries
+        let pendingNewFile = null;      // file chosen for the create form, not yet saved
+        let pendingEditFile = null;     // replacement file chosen while editing
+        let prefillCreateName = '';     // name box seed (a drop uses the file name)
+
+        // Files live inside the same encrypted blob as every other entry.
+        // 512 KB leaves room for base64 expansion plus the AES-GCM wrapper.
+        const MAX_FILE_BYTES = 512 * 1024;
 
         // Default Seed Data if vault is newly initialized
         const defaultSeed = [
@@ -364,7 +377,15 @@
 
         // --- Web Crypto API Helpers ---
         function bufferToBase64(buf) {
-            return btoa(String.fromCharCode(...new Uint8Array(buf)));
+            const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+            // Spreading a whole Uint8Array into fromCharCode blows the stack
+            // once a secret file (up to 512 KB) is in the encrypted blob.
+            const chunkSize = 0x8000;
+            let binary = '';
+            for (let i = 0; i < bytes.length; i += chunkSize) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+            }
+            return btoa(binary);
         }
 
         function base64ToBuffer(b64) {
@@ -450,14 +471,44 @@
             return isInitialized;
         }
 
+        function isQuotaError(err) {
+            if (!err) return false;
+            if (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED') return true;
+            return err.code === 22 || err.code === 1014;
+        }
+
+        function cloneEntries(list) {
+            return JSON.parse(JSON.stringify(list));
+        }
+
+        // Encrypts the in-memory array and writes one blob. On QuotaExceededError
+        // the write did not land, so the array is put back to the last good copy
+        // and the caller sees false. Other failures are logged and also return false.
         async function saveEntries() {
-            if (!masterKey || isLocked) return;
+            if (!masterKey || isLocked) return false;
+            const rollback = committedEntries ? cloneEntries(committedEntries) : null;
             try {
                 const jsonStr = JSON.stringify(entries);
                 const encryptedPayload = await encryptText(jsonStr, masterKey);
-                localStorage.setItem(DATA_KEY, JSON.stringify(encryptedPayload));
+                const serialized = JSON.stringify(encryptedPayload);
+                try {
+                    localStorage.setItem(DATA_KEY, serialized);
+                } catch (storageError) {
+                    if (rollback) entries = rollback;
+                    if (isQuotaError(storageError)) {
+                        showToast('Vault storage is full');
+                        return false;
+                    }
+                    throw storageError;
+                }
+                committedEntries = cloneEntries(entries);
+                return true;
             } catch (e) {
+                // The write did not land. Put memory back so a later save cannot
+                // persist a mix of the failed edit and older entries.
+                if (rollback) entries = rollback;
                 console.error('Failed to encrypt and save entries:', e);
+                return false;
             }
         }
 
@@ -468,14 +519,18 @@
                 if (storedDataStr) {
                     const payload = JSON.parse(storedDataStr);
                     const jsonStr = await decryptText(payload.ciphertext, payload.iv, masterKey);
-                    entries = JSON.parse(jsonStr);
+                    const parsed = JSON.parse(jsonStr);
+                    if (!Array.isArray(parsed)) throw new Error('Vault data is not an array');
+                    entries = parsed;
+                    committedEntries = cloneEntries(entries);
                 } else {
-                    entries = defaultSeed;
+                    entries = cloneEntries(defaultSeed);
                     await saveEntries();
                 }
             } catch (e) {
                 console.error('Failed to decrypt entries:', e);
-                entries = defaultSeed;
+                entries = cloneEntries(defaultSeed);
+                committedEntries = null;
             }
         }
 
@@ -534,10 +589,11 @@
                 // Check if legacy unencrypted entries exist, else seed
                 const legacyStored = localStorage.getItem('vault_entries');
                 if (legacyStored) {
-                    try { entries = JSON.parse(legacyStored); } catch(err) { entries = defaultSeed; }
+                    try { entries = JSON.parse(legacyStored); } catch(err) { entries = cloneEntries(defaultSeed); }
+                    if (!Array.isArray(entries)) entries = cloneEntries(defaultSeed);
                     localStorage.removeItem('vault_entries');
                 } else {
-                    entries = defaultSeed;
+                    entries = cloneEntries(defaultSeed);
                 }
 
                 await saveEntries();
@@ -1275,7 +1331,8 @@
             const item = entries.find(e => e.id === id);
             if (!item) return;
             item.rotatedAt = Date.now();
-            await saveEntries();
+            const ok = await saveEntries();
+            if (!ok) return;
             renderApp();
             showToast(`Marked "${item.name}" as rotated.`);
         };
@@ -1415,17 +1472,40 @@
             }
         };
 
+        // File metadata rides along only for type 'file'. Older backups have no
+        // such fields; those entries stay exactly the api-key / prompt shape.
+        function fileFieldsFromImport(item) {
+            if (!item || item.type !== 'file') return null;
+            const encoding = item.encoding === 'base64' ? 'base64' : 'text';
+            let size = Number(item.size);
+            if (!Number.isFinite(size) || size < 0) {
+                if (encoding === 'base64') {
+                    try { size = new Uint8Array(base64ToBuffer(item.value || '')).length; }
+                    catch (err) { size = 0; }
+                } else {
+                    size = new TextEncoder().encode(item.value || '').length;
+                }
+            }
+            return {
+                fileName: typeof item.fileName === 'string' ? item.fileName : '',
+                mimeType: typeof item.mimeType === 'string' && item.mimeType ? item.mimeType : 'application/octet-stream',
+                size,
+                encoding
+            };
+        }
+
         function mergeImportedEntries(importedEntries) {
             const existingIds = new Set(entries.map(item => item.id));
             let addedCount = 0;
 
             importedEntries.slice().reverse().forEach(item => {
-                if (!item || !item.name || !item.type || !item.value) return;
+                if (!item || !item.name || !item.type || typeof item.value !== 'string') return;
+                if (!item.value && item.type !== 'file') return;
                 let id = item.id || ('entry-' + Date.now());
                 if (existingIds.has(id)) {
                     id = 'entry-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
                 }
-                entries.unshift({
+                const imported = {
                     id,
                     name: item.name,
                     type: item.type,
@@ -1434,7 +1514,10 @@
                     lastUsedAt: item.lastUsedAt || null,
                     rotateDays: Number(item.rotateDays) || 0,
                     rotatedAt: item.rotatedAt || null
-                });
+                };
+                const fileFields = fileFieldsFromImport(item);
+                if (fileFields) Object.assign(imported, fileFields);
+                entries.unshift(imported);
                 existingIds.add(id);
                 addedCount++;
             });
@@ -1444,12 +1527,14 @@
         async function finishImport(importedEntries) {
             if (!Array.isArray(importedEntries) || importedEntries.length === 0) {
                 showToast('Backup contains no entries.');
-                return;
+                return false;
             }
             const added = mergeImportedEntries(importedEntries);
-            await saveEntries();
+            const ok = await saveEntries();
             renderApp();
+            if (!ok) return false;
             showToast(`Imported ${added} entr${added === 1 ? 'y' : 'ies'}.`);
+            return true;
         }
 
         function openImportPassphraseModal(payload) {
@@ -1542,6 +1627,7 @@
                 { icon: 'folder', label: 'Filter: all entries', run: () => selectCategory('all') },
                 { icon: 'key', label: 'Filter: api-keys', run: () => selectCategory('api-key') },
                 { icon: 'description', label: 'Filter: prompts', run: () => selectCategory('prompt') },
+                { icon: 'attach_file', label: 'Filter: files', run: () => selectCategory('file') },
                 { icon: 'event_repeat', label: 'Filter: needs rotation', run: () => selectCategory('stale') },
                 { icon: 'lock', label: 'Lock vault', hint: 'ctrl+L', run: () => lockVault() }
             ];
@@ -1554,12 +1640,14 @@
             }));
             const items = entries.map(item => {
                 const status = rotationStatus(item);
+                const fileScore = item.fileName ? fuzzyScore(item.fileName, query) : -1;
+                const fileBit = item.type === 'file' && item.fileName ? ` · ${item.fileName}` : '';
                 return {
-                    kind: 'entry', icon: item.type === 'api-key' ? 'key' : 'description',
+                    kind: 'entry', icon: typeIcon(item.type),
                     title: item.name,
-                    subtitle: `${item.type === 'api-key' ? 'API Key' : 'Prompt'} · ${formatTimeAgo(item.lastUsedAt)}${status && status.state === 'overdue' ? ' · rotation overdue' : ''}`,
+                    subtitle: `${typeLabel(item.type)}${fileBit} · ${formatTimeAgo(item.lastUsedAt)}${status && status.state === 'overdue' ? ' · rotation overdue' : ''}`,
                     hint: '', id: item.id,
-                    score: fuzzyScore(item.name, query)
+                    score: Math.max(fuzzyScore(item.name, query), fileScore)
                 };
             });
             return actions.concat(items)
@@ -1782,7 +1870,7 @@
                         <span>initialize vault</span>
                     </div>
                     <div class="text-mono-ui-sm text-on-surface-variant leading-relaxed">
-                        Set a master password to encrypt your API keys and prompts. Your password is never saved to disk and is required to unlock your vault &mdash; there is no reset, so pick something you will not lose.
+                        Set a master password to encrypt your API keys, prompts, and secret files. Your password is never saved to disk and is required to unlock your vault &mdash; there is no reset, so pick something you will not lose.
                     </div>
                     <form onsubmit="handleInitVault(event)" class="flex flex-col gap-md">
 ${passwordField('init-password', 'Master Password', 'Choose a password...', 'autocomplete="new-password"', { generator: true, meter: true })}
@@ -1857,6 +1945,330 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
             return '••••••••••••••••••••••••••••••••';
         }
 
+        function typeIcon(type) {
+            if (type === 'api-key') return 'key';
+            if (type === 'file') return 'attach_file';
+            return 'description';
+        }
+
+        function typeLabel(type) {
+            if (type === 'api-key') return 'API Key';
+            if (type === 'file') return 'File';
+            if (type === 'prompt') return 'Prompt';
+            return type || 'Entry';
+        }
+
+        function typeDotClass(type) {
+            if (type === 'api-key') return 'bg-primary';
+            if (type === 'file') return 'bg-tertiary';
+            return 'bg-secondary';
+        }
+
+        function isBinaryFile(item) {
+            return !!(item && item.type === 'file' && item.encoding === 'base64');
+        }
+
+        // Prompts are shown in full. API keys and files stay masked until Reveal.
+        // A revealed binary file never dumps its base64 into the page.
+        function entryValueHtml(item) {
+            if (item.type === 'prompt') return escapeHtml(item.value);
+            if (isBinaryFile(item)) {
+                if (!revealedState[item.id]) return escapeHtml(maskValue(item.value));
+                const n = Number.isFinite(Number(item.size)) ? Number(item.size) : fileEntryBytes(item).length;
+                return escapeHtml(`binary file, ${n} bytes`);
+            }
+            return revealedState[item.id] ? escapeHtml(item.value) : escapeHtml(maskValue(item.value));
+        }
+
+        function formatBytes(bytes) {
+            const n = Number(bytes);
+            if (!Number.isFinite(n) || n < 0) return '0 B';
+            if (n < 1024) return `${Math.round(n)} B`;
+            const units = ['KB', 'MB', 'GB'];
+            let value = n / 1024;
+            let unit = 0;
+            while (value >= 1024 && unit < units.length - 1) {
+                value /= 1024;
+                unit++;
+            }
+            const rounded = value >= 10 ? Math.round(value) : Math.round(value * 10) / 10;
+            return `${rounded} ${units[unit]}`;
+        }
+
+        function fileExtension(fileName) {
+            if (!fileName) return '';
+            const base = String(fileName).split(/[/\\]/).pop();
+            const dot = base.lastIndexOf('.');
+            if (dot <= 0 || dot === base.length - 1) return '';
+            return base.slice(dot).toLowerCase();
+        }
+
+        function fileSummary(info) {
+            if (!info) return '';
+            const kind = info.encoding === 'base64' ? 'binary' : 'text';
+            const ext = fileExtension(info.fileName);
+            return `${info.fileName || 'file'} · ${formatBytes(info.size)} · ${kind}${ext ? ' · ' + ext : ''}`;
+        }
+
+        function fileChipsHtml(item) {
+            if (!item || item.type !== 'file') return '';
+            const ext = fileExtension(item.fileName);
+            const showName = item.fileName && item.fileName !== item.name;
+            return `
+                ${showName ? `<span class="text-sans-label font-sans-label text-on-surface-variant/80 truncate max-w-[180px]" title="${escapeHtml(item.fileName)}">${escapeHtml(item.fileName)}</span>` : ''}
+                <span class="text-sans-label font-sans-label text-on-surface-variant/70 shrink-0">${formatBytes(item.size)}</span>
+                ${ext ? `<span class="px-xs py-[2px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-primary/90 shrink-0">${escapeHtml(ext)}</span>` : ''}
+            `;
+        }
+
+        // Rebuild the original file bytes. Text was valid UTF-8; binary is base64.
+        function fileEntryBytes(item) {
+            if (item.encoding === 'base64') return new Uint8Array(base64ToBuffer(item.value || ''));
+            return new TextEncoder().encode(item.value || '');
+        }
+
+        // Fatal UTF-8 decode decides text vs binary. A successful decode that does
+        // not reproduce the same bytes is stored as base64 so Download stays exact.
+        function payloadFromArrayBuffer(buf, file) {
+            const bytes = new Uint8Array(buf);
+            let encoding = 'base64';
+            let value;
+            try {
+                const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+                const reencoded = new TextEncoder().encode(decoded);
+                let same = reencoded.length === bytes.length;
+                for (let i = 0; same && i < bytes.length; i++) same = reencoded[i] === bytes[i];
+                if (same) {
+                    encoding = 'text';
+                    value = decoded;
+                } else {
+                    value = bufferToBase64(bytes);
+                }
+            } catch (err) {
+                value = bufferToBase64(bytes);
+            }
+            return {
+                fileName: (file && file.name) || 'file',
+                mimeType: (file && file.type) || 'application/octet-stream',
+                size: file && typeof file.size === 'number' ? file.size : bytes.length,
+                encoding,
+                value
+            };
+        }
+
+        function readFileAsPayload(file) {
+            return new Promise((resolve) => {
+                if (!file) { resolve(null); return; }
+                if (file.size > MAX_FILE_BYTES) {
+                    showToast('File is larger than 512 KB and was not added.');
+                    resolve(null);
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onerror = () => {
+                    showToast('Could not read that file.');
+                    resolve(null);
+                };
+                reader.onload = () => {
+                    try {
+                        resolve(payloadFromArrayBuffer(reader.result, file));
+                    } catch (err) {
+                        console.error('Failed to read file', err);
+                        showToast('Could not read that file.');
+                        resolve(null);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function dragHasFiles(event) {
+            const types = event.dataTransfer && event.dataTransfer.types;
+            if (!types) return false;
+            return Array.from(types).indexOf('Files') !== -1;
+        }
+
+        async function acceptEntryFile(file, scope) {
+            const payload = await readFileAsPayload(file);
+            if (!payload) return;
+            const metaId = scope === 'new' ? 'new-file-meta' : `edit-file-meta-${scope}`;
+            const meta = document.getElementById(metaId);
+            if (scope === 'new') {
+                pendingNewFile = payload;
+                if (!prefillCreateName) {
+                    prefillCreateName = payload.fileName;
+                    const nameInput = document.getElementById('new-name');
+                    if (nameInput && !nameInput.value.trim()) nameInput.value = payload.fileName;
+                }
+            } else {
+                pendingEditFile = payload;
+            }
+            if (meta) {
+                meta.classList.remove('hidden');
+                meta.textContent = (scope === 'new' ? '' : 'Replace with ') + fileSummary(payload);
+            }
+        }
+
+        async function beginFileEntryFromDrop(file) {
+            const existing = document.getElementById('new-name');
+            const typed = existing ? existing.value.trim() : '';
+            const payload = await readFileAsPayload(file);
+            if (!payload) return;
+            pendingNewFile = payload;
+            prefillCreateName = typed || payload.fileName;
+            pendingEditFile = null;
+            editingId = null;
+            expandedId = null;
+            deleteConfirmId = null;
+            isCreating = true;
+            renderApp();
+            const input = document.getElementById('new-name');
+            if (input) input.focus();
+        }
+
+        function fieldIds(scope) {
+            if (scope === 'new') {
+                return { type: 'new-type', text: 'new-text-block', file: 'new-file-block', value: 'new-value' };
+            }
+            return {
+                type: `edit-type-${scope}`,
+                text: `edit-text-block-${scope}`,
+                file: `edit-file-block-${scope}`,
+                value: `edit-value-${scope}`
+            };
+        }
+
+        function secretFieldsHtml(scope, selectedType, textValue, fileInfo) {
+            const ids = fieldIds(scope);
+            const isFile = selectedType === 'file';
+            const summary = fileInfo ? ((scope === 'new' ? '' : 'Current file: ') + fileSummary(fileInfo)) : '';
+            const fileInputId = scope === 'new' ? 'new-file' : `edit-file-${scope}`;
+            const metaId = scope === 'new' ? 'new-file-meta' : `edit-file-meta-${scope}`;
+            const safeScope = escapeHtml(scope);
+            const safeFileInputId = escapeHtml(fileInputId);
+            return `
+                <div id="${ids.text}" class="${isFile ? 'hidden' : ''}">
+                    <div class="flex items-center justify-between mb-xs">
+                        <label for="${ids.value}" class="block text-sans-label font-sans-label text-on-surface-variant uppercase">Value / Content</label>
+                        <button type="button" onclick="openGenerator('${ids.value}')" class="btn-action px-sm py-[2px] rounded text-sans-label font-sans-label flex items-center gap-xs hover:text-primary" title="Generate a random value">
+                            <span class="material-symbols-outlined text-[14px]">casino</span>
+                            <span>generate</span>
+                        </button>
+                    </div>
+                    <textarea id="${ids.value}" ${isFile ? '' : 'required'} rows="${scope === 'new' ? 3 : 4}" placeholder="Enter API key string or prompt template..." class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-code font-mono-code rounded p-sm focus:border-primary focus:outline-none resize-y">${escapeHtml(textValue || '')}</textarea>
+                </div>
+                <div id="${ids.file}" class="${isFile ? '' : 'hidden'}">
+                    <div class="flex items-center justify-between mb-xs">
+                        <label for="${safeFileInputId}" class="block text-sans-label font-sans-label text-on-surface-variant uppercase">File</label>
+                        <span class="text-sans-label font-sans-label text-on-surface-variant/60">up to 512 KB</span>
+                    </div>
+                    <input id="${safeFileInputId}" type="file" class="hidden" />
+                    <button type="button" data-file-drop="${safeScope}" data-file-input="${safeFileInputId}" class="w-full text-left border border-dashed border-grid rounded bg-[#0d1117] px-md py-md cursor-pointer hover:border-primary/70 transition-colors">
+                        <span class="flex flex-col items-center gap-xs pointer-events-none">
+                            <span class="material-symbols-outlined text-[22px] text-primary">attach_file</span>
+                            <span class="text-mono-ui-sm text-on-surface-variant">Drop a file here, or <span class="text-primary">browse</span></span>
+                            <span class="text-sans-label font-sans-label text-on-surface-variant/60">.pem, .key, .env, .json, .txt, or any other file. Stored encrypted.</span>
+                        </span>
+                        <span id="${metaId}" class="block mt-sm text-mono-ui-sm text-primary text-center ${summary ? '' : 'hidden'}">${summary ? escapeHtml(summary) : ''}</span>
+                    </button>
+                </div>`;
+        }
+
+        function bindEntryForms() {
+            document.querySelectorAll('[data-type-scope]').forEach(select => {
+                select.addEventListener('change', () => {
+                    const scope = select.dataset.typeScope;
+                    const ids = fieldIds(scope);
+                    const isFile = select.value === 'file';
+                    const textBlock = document.getElementById(ids.text);
+                    const fileBlock = document.getElementById(ids.file);
+                    if (textBlock) textBlock.classList.toggle('hidden', isFile);
+                    if (fileBlock) fileBlock.classList.toggle('hidden', !isFile);
+                    const textarea = document.getElementById(ids.value);
+                    if (textarea) textarea.required = !isFile;
+                });
+            });
+
+            document.querySelectorAll('[data-file-drop]').forEach(zone => {
+                const scope = zone.dataset.fileDrop;
+                const input = document.getElementById(zone.dataset.fileInput);
+                zone.addEventListener('click', () => { if (input) input.click(); });
+                zone.addEventListener('dragover', (event) => {
+                    if (!dragHasFiles(event)) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    zone.classList.add('border-primary');
+                });
+                zone.addEventListener('dragleave', (event) => {
+                    event.stopPropagation();
+                    zone.classList.remove('border-primary');
+                });
+                zone.addEventListener('drop', async (event) => {
+                    if (!dragHasFiles(event)) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    zone.classList.remove('border-primary');
+                    const file = event.dataTransfer.files && event.dataTransfer.files[0];
+                    if (file) await acceptEntryFile(file, scope);
+                });
+                if (input) {
+                    input.addEventListener('change', async () => {
+                        const file = input.files && input.files[0];
+                        input.value = '';
+                        if (file) await acceptEntryFile(file, scope);
+                    });
+                }
+            });
+
+            const nameInput = document.getElementById('new-name');
+            if (nameInput) {
+                nameInput.addEventListener('input', () => { prefillCreateName = nameInput.value; });
+            }
+        }
+
+        let listDragDepth = 0;
+
+        function bindListFileDrop() {
+            const container = document.getElementById('entries-container');
+            if (!container || container.dataset.dropBound === '1') return;
+            container.dataset.dropBound = '1';
+
+            container.addEventListener('dragenter', (event) => {
+                if (!dragHasFiles(event) || isLocked) return;
+                event.preventDefault();
+                listDragDepth++;
+                container.classList.add('file-drop-active');
+            });
+            container.addEventListener('dragover', (event) => {
+                if (!dragHasFiles(event) || isLocked) return;
+                event.preventDefault();
+            });
+            container.addEventListener('dragleave', (event) => {
+                if (!dragHasFiles(event)) return;
+                listDragDepth = Math.max(0, listDragDepth - 1);
+                if (listDragDepth === 0) container.classList.remove('file-drop-active');
+            });
+            container.addEventListener('drop', async (event) => {
+                if (!dragHasFiles(event) || isLocked) return;
+                if (event.target && event.target.closest && event.target.closest('[data-file-drop]')) return;
+                event.preventDefault();
+                listDragDepth = 0;
+                container.classList.remove('file-drop-active');
+                const file = event.dataTransfer.files && event.dataTransfer.files[0];
+                if (file) await beginFileEntryFromDrop(file);
+            });
+
+            // A drop anywhere else must not navigate the tab to the file.
+            document.addEventListener('dragover', (event) => {
+                if (dragHasFiles(event)) event.preventDefault();
+            });
+            document.addEventListener('drop', (event) => {
+                if (dragHasFiles(event)) event.preventDefault();
+                listDragDepth = 0;
+                container.classList.remove('file-drop-active');
+            });
+        }
+
         // Toast Notification Helper
         function showToast(msg) {
             const toast = document.createElement('div');
@@ -1905,8 +2317,8 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
                         return;
                     }
 
-                    await finishImport(importedEntries);
-                    showToast('That backup was unencrypted — consider re-exporting it.');
+                    const imported = await finishImport(importedEntries);
+                    if (imported) showToast('That backup was unencrypted — consider re-exporting it.');
                 } catch (err) {
                     console.error('Import error:', err);
                     showToast('Failed to parse JSON file.');
@@ -1920,15 +2332,51 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
             if (event) event.stopPropagation();
             const item = entries.find(e => e.id === id);
             if (!item) return;
+            if (isBinaryFile(item)) {
+                showToast('Binary files cannot be copied. Download the file instead.');
+                return;
+            }
 
-            navigator.clipboard.writeText(item.value).then(() => {
+            navigator.clipboard.writeText(item.value).then(async () => {
                 item.lastUsedAt = Date.now();
-                saveEntries();
+                const ok = await saveEntries();
                 renderApp();
-                showToast('Copied to clipboard!');
+                if (ok) showToast('Copied to clipboard!');
             }).catch(err => {
                 console.error('Failed to copy', err);
+                showToast('Could not copy to clipboard.');
             });
+        };
+
+        window.downloadEntryFile = async function(id, event) {
+            if (event) event.stopPropagation();
+            const item = entries.find(e => e.id === id);
+            if (!item || item.type !== 'file') return;
+
+            let bytes;
+            try {
+                bytes = fileEntryBytes(item);
+            } catch (err) {
+                console.error('Failed to rebuild file', err);
+                showToast('Could not rebuild that file.');
+                return;
+            }
+
+            const blob = new Blob([bytes], { type: item.mimeType || 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = item.fileName || 'download';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            // Let the browser start the download, then drop the object URL.
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+            item.lastUsedAt = Date.now();
+            const ok = await saveEntries();
+            renderApp();
+            if (!ok) return;
         };
 
         window.toggleReveal = function(id, event) {
@@ -1949,11 +2397,13 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
             editingId = id;
             expandedId = id;
             deleteConfirmId = null;
+            pendingEditFile = null;
             renderApp();
         };
 
         window.cancelEdit = function() {
             editingId = null;
+            pendingEditFile = null;
             renderApp();
         };
 
@@ -1961,25 +2411,55 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
             e.preventDefault();
             const name = document.getElementById(`edit-name-${id}`).value.trim();
             const type = document.getElementById(`edit-type-${id}`).value;
-            const value = document.getElementById(`edit-value-${id}`).value;
             const rotateDays = parseInt(document.getElementById(`edit-rotate-${id}`).value, 10) || 0;
 
-            if (!name || !value) return;
+            if (!name) return;
 
             const index = entries.findIndex(item => item.id === id);
-            if (index !== -1) {
-                const valueChanged = entries[index].value !== value;
-                entries[index].name = name;
-                entries[index].type = type;
-                entries[index].value = value;
-                entries[index].rotateDays = rotateDays;
-                // Replacing the secret is the rotation, so restart the clock.
-                if (valueChanged || !entries[index].rotatedAt) entries[index].rotatedAt = Date.now();
-                await saveEntries();
-                if (valueChanged && rotateDays) showToast('Rotation clock reset.');
+            if (index === -1) return;
+            const current = entries[index];
+            const previousValue = current.value;
+
+            let value;
+            if (type === 'file') {
+                const source = pendingEditFile || (current.type === 'file' ? {
+                    fileName: current.fileName,
+                    mimeType: current.mimeType,
+                    size: current.size,
+                    encoding: current.encoding,
+                    value: current.value
+                } : null);
+                if (!source || typeof source.value !== 'string') {
+                    showToast('Choose a file to store.');
+                    return;
+                }
+                value = source.value;
+                current.fileName = typeof source.fileName === 'string' ? source.fileName : '';
+                current.mimeType = source.mimeType || 'application/octet-stream';
+                current.size = Number.isFinite(Number(source.size)) ? Number(source.size) : 0;
+                current.encoding = source.encoding === 'base64' ? 'base64' : 'text';
+            } else {
+                value = document.getElementById(`edit-value-${id}`).value;
+                if (!value) return;
+                delete current.fileName;
+                delete current.mimeType;
+                delete current.size;
+                delete current.encoding;
             }
 
+            const valueChanged = previousValue !== value;
+            current.name = name;
+            current.type = type;
+            current.value = value;
+            current.rotateDays = rotateDays;
+            // Replacing the secret is the rotation, so restart the clock.
+            if (valueChanged || !current.rotatedAt) current.rotatedAt = Date.now();
+
+            const ok = await saveEntries();
+            if (!ok) return;
+            if (valueChanged && rotateDays) showToast('Rotation clock reset.');
             editingId = null;
+            pendingEditFile = null;
             renderApp();
         };
 
@@ -1987,10 +2467,16 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
             if (event) event.stopPropagation();
             if (deleteConfirmId === id) {
                 entries = entries.filter(e => e.id !== id);
+                const ok = await saveEntries();
+                if (!ok) {
+                    deleteConfirmId = null;
+                    renderApp();
+                    return;
+                }
                 if (expandedId === id) expandedId = null;
                 if (editingId === id) editingId = null;
                 deleteConfirmId = null;
-                await saveEntries();
+                delete revealedState[id];
                 renderApp();
             } else {
                 deleteConfirmId = id;
@@ -1999,11 +2485,14 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
         };
 
         function getFilteredEntries() {
+            const q = searchQuery.toLowerCase();
             return entries.filter(item => {
                 const matchesCat = activeCategory === 'all'
                     ? true
                     : (activeCategory === 'stale' ? needsRotation(item) : item.type === activeCategory);
-                const matchesSearch = !searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase());
+                const matchesSearch = !searchQuery
+                    || (item.name || '').toLowerCase().includes(q)
+                    || (item.fileName || '').toLowerCase().includes(q);
                 return matchesCat && matchesSearch;
             });
         }
@@ -2021,6 +2510,7 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
                 { id: 'all', label: 'all/', icon: 'folder' },
                 { id: 'api-key', label: 'api-keys/', icon: 'key' },
                 { id: 'prompt', label: 'prompts/', icon: 'description' },
+                { id: 'file', label: 'files/', icon: 'attach_file' },
                 { id: 'stale', label: 'rotate/', icon: 'event_repeat', count: stale }
             ];
 
@@ -2064,9 +2554,16 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
             renderApp();
         };
 
+        function createTypeDefault() {
+            if (pendingNewFile) return 'file';
+            if (activeCategory === 'api-key' || activeCategory === 'prompt' || activeCategory === 'file') return activeCategory;
+            return 'api-key';
+        }
+
         function renderEntries() {
             const container = document.getElementById('entries-container');
             const filtered = getFilteredEntries();
+            const createType = createTypeDefault();
 
             let html = '';
 
@@ -2083,13 +2580,14 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
                         <div class="flex flex-col sm:flex-row flex-wrap gap-md">
                             <div class="flex-1 min-w-[180px]">
                                 <label for="new-name" class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Name</label>
-                                <input id="new-name" type="text" required placeholder="e.g. openai_key.env" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none" />
+                                <input id="new-name" type="text" required placeholder="e.g. openai_key.env" value="${escapeHtml(prefillCreateName)}" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none" />
                             </div>
                             <div class="w-full sm:w-40">
                                 <label for="new-type" class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Type</label>
-                                <select id="new-type" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none">
-                                    <option value="api-key" ${activeCategory === 'api-key' ? 'selected' : ''}>API Key</option>
-                                    <option value="prompt" ${activeCategory === 'prompt' ? 'selected' : ''}>Prompt</option>
+                                <select id="new-type" data-type-scope="new" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none">
+                                    <option value="api-key" ${createType === 'api-key' ? 'selected' : ''}>API Key</option>
+                                    <option value="prompt" ${createType === 'prompt' ? 'selected' : ''}>Prompt</option>
+                                    <option value="file" ${createType === 'file' ? 'selected' : ''}>File</option>
                                 </select>
                             </div>
                             <div class="w-full sm:w-48">
@@ -2099,16 +2597,7 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
                                 </select>
                             </div>
                         </div>
-                        <div>
-                            <div class="flex items-center justify-between mb-xs">
-                                <label for="new-value" class="block text-sans-label font-sans-label text-on-surface-variant uppercase">Value / Content</label>
-                                <button type="button" onclick="openGenerator('new-value')" class="btn-action px-sm py-[2px] rounded text-sans-label font-sans-label flex items-center gap-xs hover:text-primary" title="Generate a random value">
-                                    <span class="material-symbols-outlined text-[14px]">casino</span>
-                                    <span>generate</span>
-                                </button>
-                            </div>
-                            <textarea id="new-value" required rows="3" placeholder="Enter API key string or prompt template..." class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-code font-mono-code rounded p-sm focus:border-primary focus:outline-none resize-y"></textarea>
-                        </div>
+                        ${secretFieldsHtml('new', createType, '', pendingNewFile)}
                         <div class="flex justify-end gap-sm">
                             <button type="button" onclick="toggleCreating(false)" class="btn-action px-md py-xs rounded text-mono-ui-sm min-h-[44px] flex items-center">Cancel</button>
                             <button type="submit" class="btn-action px-md py-xs rounded text-mono-ui-sm text-primary border-primary/50 hover:border-primary min-h-[44px] flex items-center">Save Entry</button>
@@ -2127,7 +2616,7 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
                             ? `No entries matching "${escapeHtml(searchQuery)}". Try clearing your search.`
                             : (activeCategory === 'stale'
                                 ? 'Nothing is due for rotation. Set a rotation period on an entry to be reminded here.'
-                                : 'No entries found in this category. Click "+ new" above to store your first entry.')}
+                                : 'No entries found in this category. Click "+ new" above to store your first entry, or drop a file onto this list.')}
                     </div>
                 </div>
                 `;
@@ -2157,9 +2646,10 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
                                 </div>
                                 <div class="w-full sm:w-40">
                                     <label for="edit-type-${item.id}" class="block text-sans-label font-sans-label text-on-surface-variant uppercase mb-xs">Type</label>
-                                    <select id="edit-type-${item.id}" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none">
+                                    <select id="edit-type-${item.id}" data-type-scope="${escapeHtml(item.id)}" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-ui-sm font-mono-ui-sm rounded px-sm py-xs focus:border-primary focus:outline-none">
                                         <option value="api-key" ${item.type === 'api-key' ? 'selected' : ''}>API Key</option>
                                         <option value="prompt" ${item.type === 'prompt' ? 'selected' : ''}>Prompt</option>
+                                        <option value="file" ${item.type === 'file' ? 'selected' : ''}>File</option>
                                     </select>
                                 </div>
                                 <div class="w-full sm:w-48">
@@ -2169,16 +2659,7 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
                                     </select>
                                 </div>
                             </div>
-                            <div>
-                                <div class="flex items-center justify-between mb-xs">
-                                    <label for="edit-value-${item.id}" class="block text-sans-label font-sans-label text-on-surface-variant uppercase">Value / Content</label>
-                                    <button type="button" onclick="openGenerator('edit-value-${item.id}')" class="btn-action px-sm py-[2px] rounded text-sans-label font-sans-label flex items-center gap-xs hover:text-primary" title="Generate a random value">
-                                        <span class="material-symbols-outlined text-[14px]">casino</span>
-                                        <span>generate</span>
-                                    </button>
-                                </div>
-                                <textarea id="edit-value-${item.id}" required rows="4" class="w-full bg-[#0d1117] border border-grid text-on-surface text-mono-code font-mono-code rounded p-sm focus:border-primary focus:outline-none resize-y">${escapeHtml(item.value)}</textarea>
-                            </div>
+                            ${secretFieldsHtml(item.id, item.type, (item.type === 'file' && item.encoding === 'base64') ? '' : item.value, pendingEditFile || (item.type === 'file' ? item : null))}
                             <div class="flex justify-end gap-sm">
                                 <button type="button" onclick="cancelEdit()" class="btn-action px-md py-xs rounded text-mono-ui-sm min-h-[44px] flex items-center">Cancel</button>
                                 <button type="submit" class="btn-action px-md py-xs rounded text-mono-ui-sm text-primary border-primary/50 hover:border-primary min-h-[44px] flex items-center">Update Entry</button>
@@ -2212,14 +2693,21 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
                         <div class="pl-0 sm:pl-8 pr-0 sm:pr-md pb-xs pt-xs w-full">
                             <div class="relative bg-[#0d1117] border border-grid rounded p-md">
                                 <div class="flex flex-wrap items-center justify-end gap-xs mb-sm sm:mb-0 sm:absolute sm:top-2 sm:right-2 z-10">
+                                    ${item.type !== 'prompt' ? `
                                     <button onclick="toggleReveal('${item.id}', event)" class="btn-action min-h-[44px] sm:min-h-[28px] sm:h-6 px-sm rounded text-sans-label font-sans-label flex items-center gap-xs">
                                         <span class="material-symbols-outlined text-[14px]">${revealedState[item.id] ? 'visibility_off' : 'visibility'}</span>
                                         <span>${revealedState[item.id] ? 'Hide' : 'Reveal'}</span>
-                                    </button>
+                                    </button>` : ''}
+                                    ${item.type === 'file' ? `
+                                    <button onclick="downloadEntryFile('${item.id}', event)" class="btn-action min-h-[44px] sm:min-h-[28px] sm:h-6 px-sm rounded text-sans-label font-sans-label flex items-center gap-xs" title="Download the original file">
+                                        <span class="material-symbols-outlined text-[14px]">download</span>
+                                        <span>Download</span>
+                                    </button>` : ''}
+                                    ${isBinaryFile(item) ? '' : `
                                     <button onclick="copyToClipboard('${item.id}', event)" class="btn-action min-h-[44px] sm:min-h-[28px] sm:h-6 px-sm rounded text-sans-label font-sans-label flex items-center gap-xs">
                                         <span class="material-symbols-outlined text-[14px]">content_copy</span>
                                         <span class="copy-text">Copy</span>
-                                    </button>
+                                    </button>`}
                                     <button onclick="startEdit('${item.id}', event)" class="btn-action min-h-[44px] sm:min-h-[28px] sm:h-6 px-sm rounded text-sans-label font-sans-label flex items-center gap-xs">
                                         <span class="material-symbols-outlined text-[14px]">edit</span>
                                         <span>Edit</span>
@@ -2234,10 +2722,13 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
                                         <span>${isDeleting ? 'Confirm?' : 'Delete'}</span>
                                     </button>
                                 </div>
-                                <pre class="text-mono-code font-mono-code text-on-surface-variant whitespace-pre-wrap break-all sm:pr-48 m-0 leading-relaxed">${revealedState[item.id] ? escapeHtml(item.value) : maskValue(item.value)}</pre>
+                                <pre class="text-mono-code font-mono-code text-on-surface-variant whitespace-pre-wrap break-all sm:pr-48 m-0 leading-relaxed">${entryValueHtml(item)}</pre>
                             </div>
                             <div class="flex flex-wrap gap-sm mt-sm">
-                                <span class="px-xs py-[2px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-on-surface-variant uppercase">${item.type === 'api-key' ? 'API Key' : 'Prompt'}</span>
+                                <span class="px-xs py-[2px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-on-surface-variant uppercase">${escapeHtml(typeLabel(item.type))}</span>
+                                ${item.type === 'file' && item.fileName ? `<span class="px-xs py-[2px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-on-surface-variant">${escapeHtml(item.fileName)}</span>` : ''}
+                                ${item.type === 'file' ? `<span class="px-xs py-[2px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-on-surface-variant">${formatBytes(item.size)}</span>` : ''}
+                                ${item.type === 'file' && fileExtension(item.fileName) ? `<span class="px-xs py-[2px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-primary/90">${escapeHtml(fileExtension(item.fileName))}</span>` : ''}
                                 <span class="px-xs py-[2px] bg-[#21262d] border border-grid rounded text-sans-label font-sans-label text-on-surface-variant opacity-75">Created ${new Date(item.createdAt).toLocaleDateString()}</span>
                                 ${rotationBadge(item, false)}
                             </div>
@@ -2249,10 +2740,11 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
                     <div class="list-row flex flex-col sm:flex-row sm:items-center w-full min-h-[44px] py-xs sm:py-0 px-md group transition-colors duration-100 cursor-pointer border-b border-grid gap-xs sm:gap-0" onclick="toggleExpand('${item.id}')">
                         <div class="flex items-center flex-1 min-w-0">
                             <div class="w-8 flex items-center justify-center shrink-0">
-                                <div class="w-1.5 h-1.5 rounded-full ${item.type === 'api-key' ? 'bg-primary' : 'bg-secondary'}"></div>
+                                <div class="w-1.5 h-1.5 rounded-full ${typeDotClass(item.type)}"></div>
                             </div>
-                            <div class="flex-1 flex items-center gap-sm min-w-0 pr-md">
+                            <div class="flex-1 flex flex-wrap items-center gap-xs sm:gap-sm min-w-0 pr-md">
                                 <span class="text-mono-ui-sm font-mono-ui-sm text-on-surface truncate">${escapeHtml(item.name)}</span>
+                                ${fileChipsHtml(item)}
                                 ${rotationBadge(item, true)}
                             </div>
                         </div>
@@ -2261,9 +2753,14 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
                                 ${formatTimeAgo(item.lastUsedAt)}
                             </div>
                             <div class="flex items-center gap-xs opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity" onclick="event.stopPropagation()">
+                                ${item.type === 'file' ? `
+                                <button onclick="downloadEntryFile('${item.id}', event)" class="text-on-surface-variant hover:text-primary min-w-[44px] min-h-[44px] flex items-center justify-center" title="Download file">
+                                    <span class="material-symbols-outlined text-[18px]">download</span>
+                                </button>` : ''}
+                                ${isBinaryFile(item) ? '' : `
                                 <button onclick="copyToClipboard('${item.id}', event)" class="text-on-surface-variant hover:text-primary min-w-[44px] min-h-[44px] flex items-center justify-center" title="Copy to clipboard">
                                     <span class="material-symbols-outlined text-[18px]">content_copy</span>
-                                </button>
+                                </button>`}
                                 <button onclick="startEdit('${item.id}', event)" class="text-on-surface-variant hover:text-primary min-w-[44px] min-h-[44px] flex items-center justify-center" title="Edit entry">
                                     <span class="material-symbols-outlined text-[18px]">edit</span>
                                 </button>
@@ -2278,14 +2775,25 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
             });
 
             container.innerHTML = html;
+            bindEntryForms();
         }
 
         window.toggleCreating = function(show) {
-            isCreating = typeof show === 'boolean' ? show : !isCreating;
-            if (isCreating) {
-                expandedId = null;
-                editingId = null;
-                deleteConfirmId = null;
+            const next = typeof show === 'boolean' ? show : !isCreating;
+            if (!next) {
+                isCreating = false;
+                pendingNewFile = null;
+                prefillCreateName = '';
+            } else {
+                if (!isCreating) {
+                    pendingNewFile = null;
+                    prefillCreateName = '';
+                    pendingEditFile = null;
+                    expandedId = null;
+                    editingId = null;
+                    deleteConfirmId = null;
+                }
+                isCreating = true;
             }
             renderApp();
 
@@ -2301,25 +2809,43 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
             e.preventDefault();
             const name = document.getElementById('new-name').value.trim();
             const type = document.getElementById('new-type').value;
-            const value = document.getElementById('new-value').value;
             const rotateDays = parseInt(document.getElementById('new-rotate').value, 10) || 0;
 
-            if (!name || !value) return;
+            if (!name) return;
 
             const newItem = {
                 id: 'entry-' + Date.now(),
                 name,
                 type,
-                value,
                 createdAt: Date.now(),
                 lastUsedAt: null,
                 rotateDays,
                 rotatedAt: Date.now()
             };
 
-            entries.unshift(newItem);
-            await saveEntries();
+            if (type === 'file') {
+                if (!pendingNewFile || typeof pendingNewFile.value !== 'string') {
+                    showToast('Choose a file to store.');
+                    return;
+                }
+                newItem.value = pendingNewFile.value;
+                newItem.fileName = pendingNewFile.fileName;
+                newItem.mimeType = pendingNewFile.mimeType || 'application/octet-stream';
+                newItem.size = Number.isFinite(Number(pendingNewFile.size)) ? Number(pendingNewFile.size) : 0;
+                newItem.encoding = pendingNewFile.encoding === 'base64' ? 'base64' : 'text';
+            } else {
+                const valueEl = document.getElementById('new-value');
+                const value = valueEl ? valueEl.value : '';
+                if (!value) return;
+                newItem.value = value;
+            }
 
+            entries.unshift(newItem);
+            const ok = await saveEntries();
+            if (!ok) return;
+
+            pendingNewFile = null;
+            prefillCreateName = '';
             isCreating = false;
             expandedId = newItem.id;
             renderApp();
@@ -2364,6 +2890,7 @@ ${passwordField('unlock-password', 'Master Password', 'Enter master password...'
             });
 
             document.addEventListener('keydown', handleGlobalKeydown);
+            bindListFileDrop();
         });
     </script>
 </body>

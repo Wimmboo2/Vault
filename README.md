@@ -1,17 +1,17 @@
 # Vault
 
-A single-file, client-side encrypted vault for API keys and prompts. No backend, no build step — just open `index.html` in a browser.
+A single-file, client-side encrypted vault for API keys, prompts, and secret files. No backend, no build step — just open `index.html` in a browser.
 
 ## What can it do?
 
 ![Lock screen](screenshots/master-lock.png)
 
 - **Encrypt at rest** — all entries are encrypted with AES-256-GCM before touching localStorage; the master key stays in memory and is never persisted
-- **API keys & prompt templates** — two entry types with category filtering (all / api-keys / prompts)
-- **Smart masking** — values are masked by default, preserving key prefixes (`sk-`, `sk-ant-`, `sk-proj-`) so you know which key is which without revealing it
-- **Copy to clipboard** — one click copies the plaintext value and bumps the "last used" timestamp
+- **API keys, prompts & secret files** — three entry types with category filtering (all / api-keys / prompts / files). A file entry (`.pem`, `.key`, `.env`, `.json`, recovery codes, or any other file up to 512 KB) keeps its original name and bytes inside the same encrypted blob; Download writes them back out
+- **Smart masking** — API keys and files stay masked until you press Reveal, and API key prefixes (`sk-`, `sk-ant-`, `sk-proj-`) stay visible so you can tell keys apart. Prompts are shown in full, with Copy and no Reveal button
+- **Copy to clipboard** — one click copies a prompt, an API key, or a text file and bumps the "last used" timestamp. Binary files are downloaded instead
 - **CRUD entries** — create, edit, delete (with a two-click confirmation to avoid accidents)
-- **Search** — full-text search across entry names
+- **Search** — matches entry names and, for files, the original file name
 - **Encrypted backups** — export is encrypted with a passphrase of your choosing and carries its own salt, so it restores on any machine; plaintext export is available but must be opted into explicitly
 - **Auto-lock on idle** — the vault locks itself after a configurable idle period, with a 30-second warning first
 - **Rotation reminders** — give an entry a rotation period and it is flagged in the list (and in a `rotate/` view) once it comes due
@@ -66,12 +66,17 @@ On a successful unlock, if the vault's recorded count is below the current targe
 {
   id: 'entry-1715000000000',
   name: 'openai_key.env',
-  type: 'api-key',   // or 'prompt'
+  type: 'api-key',   // 'api-key', 'prompt', or 'file'
   value: 'sk-proj-...',
   createdAt: 1715000000000,
   lastUsedAt: 1715100000000,
   rotateDays: 90,             // 0 = no rotation reminder
-  rotatedAt: 1715000000000    // clock restarts when the value changes
+  rotatedAt: 1715000000000,   // clock restarts when the value changes
+  // file entries only — value holds UTF-8 text or base64 of the original bytes
+  fileName: 'prod.pem',
+  mimeType: 'application/x-pem-file',
+  size: 1704,
+  encoding: 'text'            // 'text' or 'base64'
 }
 ```
 
@@ -103,7 +108,9 @@ A cleartext export is still available behind an explicit opt-in checkbox, and th
 
 **Legacy data migration.** An early iteration stored entries unencrypted under a `vault_entries` key. The setup flow checks for this legacy key and migrates its contents into the encrypted store, then removes the plaintext storage so no unencrypted data remains behind.
 
-**Smart masking that preserves prefixes.** A simple `maskValue` function examines the value instead of blindly replacing everything. If it starts with `sk-ant-`, `sk-proj-`, or `sk-`, those prefixes are shown in full and only the remainder is masked. This matters because when you have multiple API keys from different providers, the prefix tells you which is which at a glance — you don't have to reveal the full key or memorize which entry corresponds to which service.
+**Smart masking that preserves prefixes.** A simple `maskValue` function examines the value instead of blindly replacing everything. If it starts with `sk-ant-`, `sk-proj-`, or `sk-`, those prefixes are shown in full and only the remainder is masked. This matters because when you have multiple API keys from different providers, the prefix tells you which is which at a glance — you don't have to reveal the full key or memorize which entry corresponds to which service. Masking applies to API keys and secret files. Prompts are not secrets you glance at once; they are shown in full, escaped, with Copy and no Reveal button.
+
+**Text versus binary files.** A file is read as an `ArrayBuffer` and passed through a fatal UTF-8 `TextDecoder`. If that reproduces the same bytes, the entry stores the text; otherwise it stores base64. Either way the bytes only exist inside the encrypted vault blob — nothing is written to disk in the clear — and Download rebuilds them. Files over 512 KB are refused, and if `localStorage` itself is full the in-memory change is rolled back so a failed save cannot leave a half-written vault.
 
 **Two-click delete.** Accidental deletion of an API key could mean revoking and rotating a production key. The delete button first says "Delete", then on click it changes to "Confirm?" — only a second click executes the deletion. A different icon (`help_outline` vs `delete`) and error-colored styling on the second state make the intent shift unambiguous.
 
